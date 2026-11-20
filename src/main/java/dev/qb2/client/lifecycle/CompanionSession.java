@@ -30,6 +30,8 @@ public final class CompanionSession {
   private Observation actionTarget;
   public final FlightPlanner flight = new FlightPlanner();
   public final PlayerTrail trail = new PlayerTrail();
+  public final dev.qb2.companion.behavior.SituationalBehavior situational =
+      new dev.qb2.companion.behavior.SituationalBehavior();
   public final dev.qb2.cognition.decisions.ActionQueue actionQueue =
       new dev.qb2.cognition.decisions.ActionQueue();
   public String flightMode = "Idle";
@@ -175,6 +177,8 @@ public final class CompanionSession {
           if (isAlcove) score += 4.2 + (hasCeiling ? 1.2 : 0.0); // Cozy hole in a wall!
           if (isLedge) score += 3.0; // Perched on an open edge overlooking the room!
           if (dy >= 0 && dy <= 2) score += 0.8; // Slightly elevated vantage point
+          if (mc.level.isRaining() && hasCeiling) score += 3.5; // Shelter from rain!
+          if (nearWarmth(mc, pos)) score += 2.4; // Cozy near lit furnaces/campfires!
 
           if (score > bestScore) {
             bestScore = score;
@@ -184,6 +188,26 @@ public final class CompanionSession {
       }
     }
     return best;
+  }
+
+  private static boolean nearWarmth(Minecraft mc, net.minecraft.core.BlockPos pos) {
+    for (int dx = -2; dx <= 2; dx++) {
+      for (int dz = -2; dz <= 2; dz++) {
+        var bp = pos.offset(dx, 0, dz);
+        if (!mc.level.hasChunkAt(bp)) continue;
+        var st = mc.level.getBlockState(bp);
+        if ((st.is(net.minecraft.world.level.block.Blocks.CAMPFIRE)
+                || st.is(net.minecraft.world.level.block.Blocks.SOUL_CAMPFIRE)
+                || st.is(net.minecraft.world.level.block.Blocks.FURNACE)
+                || st.is(net.minecraft.world.level.block.Blocks.BLAST_FURNACE)
+                || st.is(net.minecraft.world.level.block.Blocks.SMOKER))
+            && st.hasProperty(net.minecraft.world.level.block.state.properties.BlockStateProperties.LIT)
+            && st.getValue(net.minecraft.world.level.block.state.properties.BlockStateProperties.LIT)) {
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   public void tick(Minecraft mc, Settings settings, boolean thinking) {
@@ -203,11 +227,17 @@ public final class CompanionSession {
       lastTrackedPitch = pitch;
     }
     trail.record(player);
+    situational.tick(mc, motion.position(), tick, perched);
+    if (situational.concernTicks > 0 || situational.threatTicks > 0 || situational.celebrateTicks > 0) {
+      wakeUp();
+    }
     Vec3 forward = mc.player.getLookAngle().multiply(1, 0, 1).normalize();
-    Vec3 side = forward.cross(new Vec3(0, 1, 0));
+    if (forward.lengthSqr() < 0.01) forward = new Vec3(0, 0, 1);
+    Vec3 side = forward.cross(new Vec3(0, 1, 0)).normalize();
+    double homeHeight = situational.sneaking ? 1.05 : 1.55;
     Point home =
         WorldSensor.point(
-            mc.player.position().add(forward.scale(1.3)).add(side.scale(0.8)).add(0, 1.6, 0));
+            mc.player.position().add(forward.scale(2.05)).add(side.scale(0.95)).add(0, homeHeight, 0));
     if (tick == 1) motion.reset(home);
     if (actionUntil < tick && !perched) {
       var queued = actionQueue.pollNext();
@@ -267,24 +297,38 @@ public final class CompanionSession {
       }
       state = bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : "Napping";
     } else {
+      String effectiveAction =
+          mc.player.isSprinting() || situational.wantForwardFov || bubbles.speaking(tick)
+              ? "return"
+              : action;
       var plan =
           flight.plan(
               player,
               home,
               motion.position(),
               target,
-              mc.player.isSprinting() ? "return" : action,
+              effectiveAction,
               settings.exploreRadius,
               tick,
               thinking);
       Point desired = plan.position();
-      Point eye = WorldSensor.point(mc.gameRenderer.getMainCamera().getPosition());
-      if (desired.distance(eye) < 0.9)
+      // Prevent clipping into the player's body or camera: keep >= 1.25 blocks horizontal clearance.
+      Point fromPlayer = desired.subtract(player);
+      double horizDist = Math.hypot(fromPlayer.x(), fromPlayer.z());
+      if (horizDist < 1.25) {
+        Point pushDir =
+            horizDist > 0.05
+                ? new Point(fromPlayer.x() / horizDist, 0, fromPlayer.z() / horizDist)
+                : WorldSensor.point(forward.scale(0.8).add(side.scale(0.6))).unit();
         desired =
             Motion.constrain(
                 player,
-                desired.add(WorldSensor.point(side).scale(1.1)),
+                new Point(
+                    player.x() + pushDir.x() * 1.35,
+                    Math.max(desired.y(), player.y() + (situational.sneaking ? 0.9 : 1.35)),
+                    player.z() + pushDir.z() * 1.35),
                 settings.exploreRadius * 0.9);
+      }
       flightGoal = FlightClearance.nearest(player, desired, settings.exploreRadius, free);
       flightMode = plan.mode();
       if (settings.smoothFollow) {

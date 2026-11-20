@@ -157,6 +157,11 @@ public final class ClientController {
     var s = configuration.settings();
     session.apiBackoff = mind.inCooldown();
     session.tick(mc, s, mind.busy());
+    if (session.situational.triggerGreetingSound) {
+      audio.play(mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+    } else if (session.situational.triggerCelebrateSound) {
+      audio.play(mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.SUMMON);
+    }
     boolean idleNow = session.playerIdle();
     if (wasPlayerIdle && !idleNow && ambientBuffer.hasDeferred()) {
       deliverDeferredAmbient(s);

@@ -33,12 +33,18 @@ public final class CompanionRenderer {
     lastFrame = now;
     float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
     Point position = session.motion.interpolate(partial);
+    var sit = session.situational;
     Point look =
-        "Napping".equals(session.state) && session.perchLook != null
-            ? session.perchLook
-            : session.attention.target() == null || session.bubbles.speaking(session.tick)
-                ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
-                : session.attention.target().position();
+        sit.focusLookOverride != null
+            ? sit.focusLookOverride
+            : "Napping".equals(session.state) && session.perchLook != null
+                ? session.perchLook
+                : session.attention.target() == null
+                        || session.bubbles.speaking(session.tick)
+                        || sit.greetingTicks > 0
+                        || sit.concernTicks > 0
+                    ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
+                    : session.attention.target().position();
     Point direction = look.subtract(position);
     float targetYaw = (float) Math.toDegrees(Math.atan2(direction.x(), direction.z()));
     double time = (session.tick + partial) * 0.05;
@@ -51,15 +57,34 @@ public final class CompanionRenderer {
     // NeoForge 1.21.1 already applies the camera model-view on RenderSystem at this stage.
     var camera = event.getCamera().getPosition();
     boolean napping = "Napping".equals(session.state);
-    double bob = napping ? 0.0 : Math.sin(time * 2) * 0.025;
+    double bob =
+        napping
+            ? 0.0
+            : sit.dancing
+                ? Math.abs(Math.sin(time * 5.0)) * 0.08
+                : Math.sin(time * (sit.sneaking ? 1.1 : 2.0)) * (sit.sneaking ? 0.012 : 0.025);
+
+    // Situational micro-animations (nod, head-tilt, celebrate pirouette, rain shiver)
+    float extraYaw =
+        sit.celebrateTicks > 0
+            ? (45 - sit.celebrateTicks + partial) * 8.0f
+            : sit.itemDropTicks > 30 ? (45 - sit.itemDropTicks) * 4.0f : 0f;
+    float extraPitch =
+        sit.greetingTicks > 0 ? (float) (Math.sin(time * 14.0) * 16.0) : 0f;
+    float extraRoll =
+        (sit.peeking ? 13.0f : 0f)
+            + (sit.greetingTicks > 0 ? (float) (Math.sin(time * 10.0) * 10.0) : 0f)
+            + (sit.rainShiverTicks > 0 ? (float) (Math.sin(time * 36.0) * 11.0) : 0f)
+            + (sit.dancing ? (float) (Math.sin(time * 4.5) * 12.0) : 0f);
+
     poses.pushPose();
     poses.translate(
         position.x() - camera.x,
         position.y() - camera.y + bob,
         position.z() - camera.z);
-    poses.mulPose(Axis.YP.rotationDegrees(frame.yaw()));
-    poses.mulPose(Axis.ZP.rotationDegrees(frame.roll()));
-    poses.mulPose(Axis.XP.rotationDegrees(frame.pitch()));
+    poses.mulPose(Axis.YP.rotationDegrees(frame.yaw() + extraYaw));
+    poses.mulPose(Axis.ZP.rotationDegrees(frame.roll() + extraRoll));
+    poses.mulPose(Axis.XP.rotationDegrees(frame.pitch() + extraPitch));
     var buffers = mc.renderBuffers().bufferSource();
     var vertices = buffers.getBuffer(type);
     box(
@@ -68,17 +93,26 @@ public final class CompanionRenderer {
     // Keep the sensor & edge geometry in the same full-bright material pass as the body.
     // Separate eyes/emissive passes are discarded by some Iris/Sodium pack pipelines.
     var light = vertices;
-    float intensity = (float) (0.45 + settings.glow * frame.light() * 0.55);
+    float baseIntensity = (float) (0.45 + settings.glow * frame.light() * 0.55);
+    float intensity =
+        sit.darkMode ? Math.min(1.0f, baseIntensity * 1.18f) : sit.sneaking ? baseIntensity * 0.65f : baseIntensity;
     boolean thinking = "Thinking".equals(session.state);
     boolean speaking = "Speaking".equals(session.state);
     boolean errorVisual = session.apiBackoff || session.errorTintTicks > 0;
-    // State-reactive glowing edges: blue = idle, dim indigo = napping, orange = thinking/request,
-    // cyan-white = speaking, reddish = API error/backoff.
+    // State-reactive glowing edges
     float er, eg, eb;
-    if (errorVisual) {
+    if (sit.threatTicks > 0 || sit.concernTicks > 0) {
+      er = intensity;
+      eg = intensity * 0.42f;
+      eb = intensity * 0.08f;
+    } else if (errorVisual) {
       er = intensity;
       eg = intensity * 0.22f;
       eb = intensity * 0.14f;
+    } else if (sit.celebrateTicks > 0) {
+      er = intensity * 0.95f;
+      eg = intensity * 0.92f;
+      eb = intensity * 0.35f;
     } else if (thinking) {
       er = intensity;
       eg = intensity * 0.54f;
@@ -88,9 +122,13 @@ public final class CompanionRenderer {
       eg = intensity * 0.96f;
       eb = intensity;
     } else if (napping) {
-      er = intensity * 0.14f;
-      eg = intensity * 0.34f;
-      eb = intensity * 0.72f;
+      er = sit.warmGlow ? intensity * 0.42f : intensity * 0.14f;
+      eg = sit.warmGlow ? intensity * 0.46f : intensity * 0.34f;
+      eb = sit.warmGlow ? intensity * 0.68f : intensity * 0.72f;
+    } else if (sit.warmGlow) {
+      er = intensity * 0.55f;
+      eg = intensity * 0.78f;
+      eb = intensity * 0.92f;
     } else {
       er = intensity * 0.22f;
       eg = intensity * 0.68f;
