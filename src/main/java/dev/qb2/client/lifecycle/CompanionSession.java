@@ -39,6 +39,10 @@ public final class CompanionSession {
       new dev.qb2.network.RemoteCompanionTracker();
   public float lastRenderedYaw, lastRenderedPitch, lastRenderedRoll;
   public String pendingSyncSpeech = "";
+  public boolean pendingWeeeeSound;
+  public boolean pendingBoingSound;
+  public boolean pendingSleepSound;
+  public boolean pendingGentlePlace;
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
   public volatile boolean apiBackoff;
@@ -110,12 +114,14 @@ public final class CompanionSession {
 
   public void perchAt(PerchPlacement placement) {
     if (placement == null || placement.position() == null) return;
+    boolean wasSleeping = isSleeping();
     perched = true;
     perchSpot = placement.position();
     perchLook = placement.lookAt();
     perchedSinceTick = tick;
     action = "rest";
     actionUntil = tick + 2400;
+    if (!wasSleeping) pendingSleepSound = true;
   }
 
   public void wakeUp() {
@@ -365,7 +371,7 @@ public final class CompanionSession {
       } else if (grabThrow.isThrown()) {
         // Just launched!
         situational.barrelRollTicks = 28;
-        situational.triggerCelebrateSound = true;
+        pendingWeeeeSound = true;
         String yeetText = grabThrow.lastLaunchCharge() >= 0.78f ? "YEET!! ✦" : "Weeeee! ✦";
         bubbles.speech(yeetText, tick);
         pendingSyncSpeech = yeetText;
@@ -373,6 +379,7 @@ public final class CompanionSession {
         state = "Wingman";
       } else {
         // Gently placed down without throwing
+        pendingGentlePlace = true;
         flightMode = "Idle";
         state = "Idle";
       }
@@ -383,7 +390,7 @@ public final class CompanionSession {
       flightMode = "Wingman";
       state = "Wingman";
       if (grabThrow.consumeJustBounced()) {
-        situational.triggerGreetingSound = true;
+        pendingBoingSound = true;
         bubbles.thought("*boing*", tick);
       }
       if (!grabThrow.isThrown()) {

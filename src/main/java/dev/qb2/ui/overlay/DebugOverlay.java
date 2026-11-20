@@ -16,6 +16,38 @@ public final class DebugOverlay {
     var session = controller.session;
     if (session == null || settings.paused) return;
     var mc = Minecraft.getInstance();
+    // Live Grab & Throw Charge Bar HUD right below the crosshair!
+    if (session.grabThrow.isGrabbed()) {
+      int sw = mc.getWindow().getGuiScaledWidth();
+      int sh = mc.getWindow().getGuiScaledHeight();
+      int cx = sw / 2;
+      int cy = sh / 2 + 22;
+      if (session.grabThrow.isCharging()) {
+        float charge = session.grabThrow.chargeRatio();
+        int barW = 104;
+        int barH = 8;
+        int x0 = cx - barW / 2;
+        int fillW = Math.round(barW * charge);
+        // Smooth color shift: cyan -> gold -> fiery orange as throw power approaches 100%
+        int fillColor =
+            charge < 0.5f ? 0xEE44DDFF : charge < 0.82f ? 0xEEFFD244 : 0xEEFF6B2B;
+        event.getGuiGraphics().fill(x0 - 2, cy - 2, x0 + barW + 2, cy + barH + 2, 0xBB0B1420);
+        event.getGuiGraphics().fill(x0, cy, x0 + barW, cy + barH, 0x881A2E44);
+        if (fillW > 0) {
+          event.getGuiGraphics().fill(x0, cy, x0 + fillW, cy + barH, fillColor);
+        }
+        String pct = "⚡ Wurfkraft " + Math.round(charge * 100f) + "%";
+        int tw = mc.font.width(pct);
+        event.getGuiGraphics().drawString(mc.font, pct, cx - tw / 2, cy + 12, fillColor);
+      } else {
+        String hint = "✦ Cubey gehalten · RMB halten zum Werfen · LMB loslassen zum Absetzen";
+        int tw = mc.font.width(hint);
+        event
+            .getGuiGraphics()
+            .fill(cx - tw / 2 - 5, cy - 2, cx + tw / 2 + 5, cy + 10, 0x990D1A26);
+        event.getGuiGraphics().drawString(mc.font, hint, cx - tw / 2, cy, 0xFFB8ECFF);
+      }
+    }
     // Subtle bottom-center HUD thought subtitle so you never have to spin the camera to read thoughts.
     if (!session.isSleeping()) {
       var thought = session.bubbles.activeThought(session.tick, settings.thoughts);

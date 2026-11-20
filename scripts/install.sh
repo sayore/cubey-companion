@@ -2,8 +2,8 @@
 set -euo pipefail
 instance=${1:?Usage: scripts/install.sh /path/to/minecraft-instance}
 root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)
-jar="$root/build/libs/qb2-0.9.3.jar"
-[[ -f "$jar" ]] || jar="$root/mods/qb2-0.9.3.jar"
+jar="$root/build/libs/qb2-0.9.4-client.jar"
+[[ -f "$jar" ]] || jar="$root/mods/qb2-0.9.4-client.jar"
 [[ -f "$jar" ]] || { echo 'Build with ./gradlew clean build first' >&2; exit 1; }
 [[ -d "$instance" ]] || { echo 'Instance directory does not exist' >&2; exit 1; }
 mkdir -p -- "$instance/mods"

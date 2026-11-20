@@ -20,6 +20,7 @@ public final class Motion {
   private Point lastCenter;
   private Point cachedWaypoint, cachedGoal;
   private int waypointTtl;
+  private int blockedTicks;
   private boolean initialized;
 
   public void reset(Point point) {
@@ -135,17 +136,20 @@ public final class Motion {
     }
     previous = position;
     double distFromPlayer = position.distance(center);
-    boolean fastMover = playerSpeed > 0.24;
-    boolean catchingUp = distFromPlayer > radius || fastMover;
-    // When in fast vehicle/aircraft flight, steer directly toward the wingman target rather than old ground breadcrumbs.
+    boolean fastMover = playerSpeed > 0.22;
+    boolean catchingUp = distFromPlayer > Math.min(radius, 3.6) || fastMover;
+    // Use PlayerTrail as a loose reference when lagging behind indoors; switch directly to target
+    // when sprinting/flying fast or when already close.
+    Point boundedTarget = constrain(center, target, radius);
     Point goal =
-        (distFromPlayer > radius && playerSpeed <= 0.45 && trail != null)
-            ? trail.nextWaypoint(position, constrain(center, target, radius))
-            : constrain(center, target, radius);
+        (distFromPlayer > 3.6 && playerSpeed <= 0.42 && trail != null)
+            ? trail.nextWaypoint(position, boundedTarget)
+            : boundedTarget;
     double navRadius = catchingUp ? Math.max(radius, distFromPlayer + 3.0) : radius;
 
     Point steerTarget = goal;
-    if (!pathFree(position, goal, free)) {
+    boolean directClear = pathFree(position, goal, free);
+    if (!directClear) {
       boolean reuse =
           cachedWaypoint != null
               && waypointTtl > 0
@@ -170,15 +174,16 @@ public final class Motion {
 
     Point delta = steerTarget.subtract(position);
     double distToGoal = delta.length();
-    // Scale speed dynamically with actual player/aircraft speed + distance lag so Cubey pulls up crisply.
+    // Scale speed crisply with player/vehicle speed + distance lag so Cubey zips through open doors
+    // right behind the player without lagging!
     double dynamicMaxStep =
         catchingUp
             ? Math.min(
                 2.4,
-                Math.max(MAX_STEP, playerSpeed * 1.28 + Math.max(0.0, distToGoal - 1.2) * 0.11))
-            : Math.max(MAX_STEP, playerSpeed * 1.15);
-    double gain = fastMover ? 0.34 : catchingUp ? 0.18 : 0.08;
-    double accel = fastMover ? 0.42 : catchingUp ? 0.24 : 0.16;
+                Math.max(0.26, playerSpeed * 1.42 + Math.max(0.0, distToGoal - 0.9) * 0.15))
+            : Math.max(MAX_STEP, playerSpeed * 1.18);
+    double gain = fastMover ? 0.36 : catchingUp ? 0.24 : 0.10;
+    double accel = fastMover ? 0.44 : catchingUp ? 0.30 : 0.18;
     Point desired = delta.unit().scale(Math.min(dynamicMaxStep, distToGoal * gain));
     velocity = velocity.lerp(desired, accel);
     Point next =
@@ -196,6 +201,21 @@ public final class Motion {
         }
       }
       velocity = Point.ZERO;
+      if (distFromPlayer > 3.8) blockedTicks++;
+    } else {
+      blockedTicks = Math.max(0, blockedTicks - 1);
+    }
+
+    // If Cubey is stuck behind a closed door or wall for ~0.8s while the player ran inside,
+    // smoothly phase-slip to a clear spot beside the player instead of staying trapped outside!
+    if ((blockedTicks >= 16 && distFromPlayer > 4.2) || (blockedTicks >= 8 && distFromPlayer > 16.0)) {
+      Point slip = FlightClearance.nearest(center, boundedTarget, Math.min(3.5, radius), free);
+      if (free.test(slip)) {
+        if (trail != null) trail.clear();
+        reset(slip);
+        blockedTicks = 0;
+        return;
+      }
     }
     position = next;
   }

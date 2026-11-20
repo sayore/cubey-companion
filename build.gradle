@@ -2,7 +2,7 @@ plugins {
     id 'java-library'
     id 'net.neoforged.moddev' version '2.0.148'
 }
-version = '0.9.3'
+version = '0.9.4'
 group = 'dev.qb2'
 base { archivesName = 'qb2' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -42,11 +42,31 @@ tasks.register('liveApiCheck', JavaExec) {
 }
 tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
 
+tasks.named('jar') {
+    archiveClassifier = 'client'
+}
+
+tasks.register('serverJar', Jar) {
+    dependsOn tasks.named('classes')
+    archiveBaseName = 'qb2'
+    archiveVersion = project.version.toString()
+    archiveClassifier = 'server'
+    from(sourceSets.main.output) {
+        include 'dev/qb2/QB2Mod.class'
+        include 'dev/qb2/QB2Mod$*.class'
+        include 'dev/qb2/network/**'
+        include 'dev/qb2/companion/movement/Point.class'
+        include 'META-INF/**'
+        include 'pack.mcmeta'
+    }
+}
+
 tasks.register('releaseBundle', Zip) {
-    dependsOn tasks.named('jar')
+    dependsOn tasks.named('jar'), tasks.named('serverJar')
     archiveFileName = "qb2-${project.version}-bundle.zip"
     destinationDirectory = layout.buildDirectory.dir('distributions')
     from(tasks.named('jar')) { into 'mods' }
+    from(tasks.named('serverJar')) { into 'server-mods' }
     from('README.md', 'LICENSE')
     from('docs') { into 'docs' }
     from('examples') { into 'examples' }
@@ -54,4 +74,4 @@ tasks.register('releaseBundle', Zip) {
     from('patches') { into 'patches' }
     from(['scripts/install.sh', 'scripts/import-catalog.py', 'scripts/start-bridge.sh', 'scripts/qb2-bridge.service']) { into 'scripts' }
 }
-tasks.named('assemble') { dependsOn tasks.named('releaseBundle') }
+tasks.named('assemble') { dependsOn tasks.named('serverJar'), tasks.named('releaseBundle') }

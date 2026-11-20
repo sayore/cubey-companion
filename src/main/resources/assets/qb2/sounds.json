@@ -1,0 +1,34 @@
+{
+  "weeee": {
+    "subtitle": "subtitles.qb2.weeee",
+    "sounds": ["qb2:weeee"]
+  },
+  "boing": {
+    "subtitle": "subtitles.qb2.boing",
+    "sounds": ["qb2:boing"]
+  },
+  "grab": {
+    "subtitle": "subtitles.qb2.grab",
+    "sounds": ["qb2:grab"]
+  },
+  "charge": {
+    "subtitle": "subtitles.qb2.charge",
+    "sounds": ["qb2:charge"]
+  },
+  "happy": {
+    "subtitle": "subtitles.qb2.happy",
+    "sounds": ["qb2:happy"]
+  },
+  "speech": {
+    "subtitle": "subtitles.qb2.speech",
+    "sounds": ["qb2:speech"]
+  },
+  "summon": {
+    "subtitle": "subtitles.qb2.summon",
+    "sounds": ["qb2:summon"]
+  },
+  "sleep": {
+    "subtitle": "subtitles.qb2.sleep",
+    "sounds": ["qb2:sleep"]
+  }
+}

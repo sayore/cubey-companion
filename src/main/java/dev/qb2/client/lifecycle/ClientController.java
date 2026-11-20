@@ -36,7 +36,9 @@ public final class ClientController {
   private final KeyMapping summonKey =
       new KeyMapping("key.qb2.summon", GLFW.GLFW_KEY_UNKNOWN, "key.categories.qb2");
   private final KeyMapping lookHereKey =
-      new KeyMapping("key.qb2.look_here", GLFW.GLFW_KEY_UNKNOWN, "key.categories.qb2");
+      new KeyMapping("key.qb2.look_here", GLFW.GLFW_KEY_G, "key.categories.qb2");
+  private int lookKeyHoldTicks;
+  private boolean lookRadialOpened;
   private final CompanionRenderer renderer = new CompanionRenderer();
   private final dev.qb2.rendering.audio.CompanionAudio audio =
       new dev.qb2.rendering.audio.CompanionAudio();
@@ -158,7 +160,29 @@ public final class ClientController {
     while (settingsKey.consumeClick()) mc.setScreen(new SettingsScreen(mc.screen, this));
     while (pauseKey.consumeClick()) setPaused(!configuration.settings().paused);
     while (summonKey.consumeClick()) summonCompanion();
-    while (lookHereKey.consumeClick()) lookHereCompanion();
+    // Hold Look Here key (G) -> open Radial Quick-Question Menu; quick tap -> instant Look Here!
+    if (session != null && !configuration.settings().paused && mc.screen == null) {
+      if (lookHereKey.isDown()) {
+        lookKeyHoldTicks++;
+        if (configuration.settings().radialMenu && lookKeyHoldTicks == 5 && !lookRadialOpened) {
+          lookRadialOpened = true;
+          while (lookHereKey.consumeClick()) {}
+          openRadialForCurrentTarget(lookHereKey);
+        }
+      } else {
+        if (lookKeyHoldTicks > 0 && lookKeyHoldTicks < 5 && !lookRadialOpened) {
+          lookHereCompanion();
+        }
+        while (lookHereKey.consumeClick()) {}
+        lookKeyHoldTicks = 0;
+        lookRadialOpened = false;
+      }
+    } else {
+      if (!lookHereKey.isDown()) {
+        lookKeyHoldTicks = 0;
+        lookRadialOpened = false;
+      }
+    }
     if (mc.level != level || mc.player != player) {
       reset();
       level = mc.level;
@@ -217,10 +241,40 @@ public final class ClientController {
               session.situational.activeHat,
               sharedSpeech));
     }
-    if (session.situational.triggerGreetingSound) {
-      audio.play(mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+    if (session.pendingWeeeeSound) {
+      session.pendingWeeeeSound = false;
+      float pitch = 0.94f + session.grabThrow.lastLaunchCharge() * 0.28f;
+      audio.play(
+          mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.WEEEE, pitch);
+    } else if (session.pendingBoingSound) {
+      session.pendingBoingSound = false;
+      audio.play(
+          mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.BOING);
+    } else if (session.pendingSleepSound) {
+      session.pendingSleepSound = false;
+      audio.play(
+          mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.SLEEP);
+    } else if (session.grabThrow.isCharging()) {
+      float pitch = 0.85f + session.grabThrow.chargeRatio() * 0.85f;
+      audio.play(
+          mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.CHARGE, pitch);
+    } else if (session.situational.triggerGreetingSound) {
+      audio.play(
+          mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
     } else if (session.situational.triggerCelebrateSound) {
-      audio.play(mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.SUMMON);
+      audio.play(
+          mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
+    }
+    if (session.pendingGentlePlace) {
+      session.pendingGentlePlace = false;
+      if (s.radialMenu && mc.screen == null && mc.hitResult instanceof BlockHitResult hit) {
+        var bp = hit.getBlockPos();
+        if (mc.level != null
+            && !mc.level.getBlockState(bp).isAir()
+            && player.position().distanceTo(net.minecraft.world.phys.Vec3.atCenterOf(bp)) <= 5.0) {
+          openRadialForCurrentTarget(null);
+        }
+      }
     }
     boolean idleNow = session.playerIdle();
     if (wasPlayerIdle && !idleNow && ambientBuffer.hasDeferred()) {
@@ -393,7 +447,7 @@ public final class ClientController {
           mc,
           configuration.settings(),
           session.motion.position(),
-          dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+          dev.qb2.rendering.audio.CompanionAudio.Cue.GRAB);
       return;
     }
     // 1. Direct right-click interaction on Cubey's 0.26-radius hitbox
@@ -625,6 +679,96 @@ public final class ClientController {
   public void lookHereCompanion() {
     if (session == null || configuration.settings().paused) return;
     handleLookHere();
+  }
+
+  private void openRadialForCurrentTarget(KeyMapping holdKey) {
+    if (mc.level == null || mc.player == null || session == null) return;
+    String name = "Umgebung";
+    String ctx = "";
+    Point pos = session.motion.position();
+    if (mc.hitResult instanceof BlockHitResult hit) {
+      var bp = hit.getBlockPos();
+      var st = mc.level.getBlockState(bp);
+      if (!st.isAir()) {
+        String id = BuiltInRegistries.BLOCK.getKey(st.getBlock()).toString();
+        name = st.getBlock().getName().getString();
+        pos = new Point(bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5);
+        String nearby = scanContraptionNeighbors(bp);
+        ctx =
+            name
+                + " ("
+                + id
+                + ", state: "
+                + st
+                + ")"
+                + (nearby.isBlank() ? "" : "; nearby blocks: " + nearby);
+        session.focusOn(new Observation(id + "@" + bp.getX() + "," + bp.getY() + "," + bp.getZ(), id, name, st.toString(), pos, 10.0, session.tick));
+      }
+    } else if (mc.hitResult instanceof net.minecraft.world.phys.EntityHitResult ehit) {
+      var e = ehit.getEntity();
+      name = e.getName().getString();
+      String id = BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString();
+      pos = dev.qb2.perception.world.WorldSensor.point(e.getBoundingBox().getCenter());
+      ctx = name + " (" + id + ")";
+    }
+    mc.setScreen(new dev.qb2.ui.screens.RadialQuestionScreen(this, name, ctx, pos, holdKey));
+  }
+
+  public void executeRadialQuestion(
+      dev.qb2.ui.screens.RadialQuestionScreen.Option opt,
+      String targetName,
+      String targetContext,
+      Point targetPos) {
+    if (session == null || mc.player == null || mc.level == null) return;
+    session.wakeUp();
+    if (opt.bookmarkOnly()) {
+      String dim = mc.level.dimension().location().toString();
+      Point pt =
+          targetPos != null
+              ? targetPos
+              : dev.qb2.perception.world.WorldSensor.point(mc.player.position());
+      String label =
+          "Marked location: "
+              + targetName
+              + " at "
+              + (int) Math.floor(pt.x())
+              + ","
+              + (int) Math.floor(pt.y())
+              + ","
+              + (int) Math.floor(pt.z())
+              + " ("
+              + dim
+              + ")";
+      queueBackgroundEpisode(
+          Episode.createAt(
+              scope,
+              "waypoint",
+              List.of(targetName.toLowerCase(Locale.ROOT), "waypoint", "ort", "marked"),
+              label,
+              pt,
+              dim));
+      session.bubbles.speech("📍 Gemerkt: " + targetName + "!", session.tick);
+      audio.play(
+          mc,
+          configuration.settings(),
+          session.motion.position(),
+          dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
+      mc.gui.getChat().addMessage(Component.literal("[QB2] " + label));
+      return;
+    }
+    audio.play(
+        mc,
+        configuration.settings(),
+        session.motion.position(),
+        dev.qb2.rendering.audio.CompanionAudio.Cue.LOOK_HERE);
+    lastDirectConvoTick = session.tick;
+    lastDirectPrompt = opt.label() + " " + targetName;
+    mc.gui
+        .getChat()
+        .addMessage(Component.literal("[You → QB2] " + opt.label() + " (" + targetName + ")"));
+    String fullPrompt =
+        (targetContext.isBlank() ? "" : "Target: " + targetContext + ". ") + opt.prompt();
+    enqueue(new Trigger("direct address", 0, fullPrompt));
   }
 
   public void sitCompanion() {
@@ -870,7 +1014,7 @@ public final class ClientController {
           mc,
           configuration.settings(),
           session.motion.position(),
-          dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+          dev.qb2.rendering.audio.CompanionAudio.Cue.GRAB);
     if (!d.speech().isBlank()) {
       speakLocally(d.speech());
     }

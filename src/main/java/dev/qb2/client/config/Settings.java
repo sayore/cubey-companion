@@ -15,8 +15,9 @@ public final class Settings {
   public int inferenceSeconds = 20, speechSeconds = 45, tokenBudget = 950, outputTokens = 600, timeoutSeconds = 25;
   public boolean autonomous = true, thoughts = true, speech = true, particles = true;
   public boolean sounds = true, showTargetBeam = true, smoothFollow = true, multiplayerSync = true;
+  public boolean radialMenu = true;
   public boolean debug = false, paused = false, serverChat = false;
-  public double glow = 0.85, bubbleOpacity = 0.8;
+  public double glow = 0.85, bubbleOpacity = 0.8, soundVolume = 0.75;
   public String triggers = "@cube,@qb,qb2";
   public String style = "calm";
 
@@ -65,11 +66,13 @@ public final class Settings {
     c.showTargetBeam = showTargetBeam;
     c.smoothFollow = smoothFollow;
     c.multiplayerSync = multiplayerSync;
+    c.radialMenu = radialMenu;
     c.debug = debug;
     c.paused = paused;
     c.serverChat = serverChat;
     c.glow = glow;
     c.bubbleOpacity = bubbleOpacity;
+    c.soundVolume = soundVolume;
     c.triggers = triggers;
     c.style = style;
     return c;
@@ -87,6 +90,7 @@ public final class Settings {
     timeoutSeconds = Math.clamp(timeoutSeconds, 2, 60);
     glow = finite(glow, 0, 1);
     bubbleOpacity = finite(bubbleOpacity, 0.1, 1);
+    soundVolume = finite(soundVolume, 0, 1);
     if (modelChain == null) modelChain = "";
     if (ambientModel == null) ambientModel = "";
     if (fallbackProvider == null) fallbackProvider = "";

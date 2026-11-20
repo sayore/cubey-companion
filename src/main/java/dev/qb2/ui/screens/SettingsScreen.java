@@ -31,6 +31,7 @@ public final class SettingsScreen extends Screen {
           "autonomous",
           "smoothFollow",
           "multiplayerSync",
+          "radialMenu",
           "paused",
           "serverChat",
           "exploreRadius",
@@ -48,6 +49,7 @@ public final class SettingsScreen extends Screen {
           "thoughts",
           "speech",
           "sounds",
+          "soundVolume",
           "particles",
           "showTargetBeam",
           "glow",
@@ -58,16 +60,17 @@ public final class SettingsScreen extends Screen {
   private record SliderSpec(double min, double max, boolean integer, String suffix) {}
 
   private static final Map<String, SliderSpec> SLIDERS =
-      Map.of(
-          "glow", new SliderSpec(0.0, 1.0, false, ""),
-          "bubbleOpacity", new SliderSpec(0.1, 1.0, false, ""),
-          "exploreRadius", new SliderSpec(2.0, 20.0, false, " blk"),
-          "perceptionRadius", new SliderSpec(3.0, 24.0, false, " blk"),
-          "fieldOfView", new SliderSpec(30.0, 180.0, true, "°"),
-          "inferenceSeconds", new SliderSpec(5.0, 120.0, true, "s"),
-          "speechSeconds", new SliderSpec(10.0, 180.0, true, "s"),
-          "tokenBudget", new SliderSpec(800.0, 4000.0, true, " tok"),
-          "outputTokens", new SliderSpec(150.0, 1200.0, true, " tok"));
+      Map.ofEntries(
+          Map.entry("soundVolume", new SliderSpec(0.0, 1.0, false, "")),
+          Map.entry("glow", new SliderSpec(0.0, 1.0, false, "")),
+          Map.entry("bubbleOpacity", new SliderSpec(0.1, 1.0, false, "")),
+          Map.entry("exploreRadius", new SliderSpec(2.0, 20.0, false, " blk")),
+          Map.entry("perceptionRadius", new SliderSpec(3.0, 24.0, false, " blk")),
+          Map.entry("fieldOfView", new SliderSpec(30.0, 180.0, true, "°")),
+          Map.entry("inferenceSeconds", new SliderSpec(5.0, 120.0, true, "s")),
+          Map.entry("speechSeconds", new SliderSpec(10.0, 180.0, true, "s")),
+          Map.entry("tokenBudget", new SliderSpec(800.0, 4000.0, true, " tok")),
+          Map.entry("outputTokens", new SliderSpec(150.0, 1200.0, true, " tok")));
 
   private static final Map<String, String> FRIENDLY_LABELS =
       Map.ofEntries(
@@ -86,6 +89,7 @@ public final class SettingsScreen extends Screen {
           Map.entry("autonomous", "Autonomous Curiosity"),
           Map.entry("smoothFollow", "Smooth Trail Follow"),
           Map.entry("multiplayerSync", "Multiplayer Cubey Sync"),
+          Map.entry("radialMenu", "Quick Question Radial Menu"),
           Map.entry("paused", "Pause Companion"),
           Map.entry("serverChat", "Send to Public Server Chat"),
           Map.entry("exploreRadius", "Explore Radius"),
@@ -100,7 +104,8 @@ public final class SettingsScreen extends Screen {
           Map.entry("style", "Personality / Style"),
           Map.entry("thoughts", "Show Thought Bubbles"),
           Map.entry("speech", "Show Speech Bubbles"),
-          Map.entry("sounds", "Audio Cues"),
+          Map.entry("sounds", "Cubey Sounds (On/Off)"),
+          Map.entry("soundVolume", "Cubey Sound Volume"),
           Map.entry("particles", "Hover Particles"),
           Map.entry("showTargetBeam", "Target Focus Beam"),
           Map.entry("glow", "Sensor & Edge Glow"),
