@@ -149,6 +149,16 @@ public record InferenceSnapshot(
     var vitals = dev.qb2.perception.PlayerSituationSensor.capture(player);
     var playerMap = new LinkedHashMap<String, Object>();
     playerMap.put("position", playerPosition);
+    var mainHand = player.getMainHandItem();
+    var offHand = player.getOffhandItem();
+    if (!mainHand.isEmpty() || !offHand.isEmpty()) {
+      String held =
+          !mainHand.isEmpty()
+              ? mainHand.getHoverName().getString()
+                  + (offHand.isEmpty() ? "" : " (offhand: " + offHand.getHoverName().getString() + ")")
+              : "offhand: " + offHand.getHoverName().getString();
+      playerMap.put("held", held);
+    }
     if ("player condition".equals(reason) || vitals.health() < 16 || player.isOnFire() || player.isUnderWater()) {
       playerMap.put("condition", vitals);
     }
@@ -157,6 +167,11 @@ public record InferenceSnapshot(
     var words = new LinkedHashSet<String>();
     words.add(level.dimension().location().toString());
     words.add(reason);
+    if (!mainHand.isEmpty()) {
+      words.add(
+          net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(mainHand.getItem()).toString());
+      words.addAll(Keywords.extract(mainHand.getHoverName().getString()));
+    }
     selectedObs.forEach(
         o -> {
           words.add(o.registryId());

@@ -35,16 +35,18 @@ public final class CompanionRenderer {
     Point position = session.motion.interpolate(partial);
     var sit = session.situational;
     Point look =
-        sit.focusLookOverride != null
-            ? sit.focusLookOverride
-            : "Napping".equals(session.state) && session.perchLook != null
-                ? session.perchLook
-                : session.attention.target() == null
-                        || session.bubbles.speaking(session.tick)
-                        || sit.greetingTicks > 0
-                        || sit.concernTicks > 0
-                    ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
-                    : session.attention.target().position();
+        session.guideDestination != null
+            ? session.guideDestination
+            : sit.focusLookOverride != null
+                ? sit.focusLookOverride
+                : "Napping".equals(session.state) && session.perchLook != null
+                    ? session.perchLook
+                    : session.attention.target() == null
+                            || session.bubbles.speaking(session.tick)
+                            || sit.greetingTicks > 0
+                            || sit.concernTicks > 0
+                        ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
+                        : session.attention.target().position();
     Point direction = look.subtract(position);
     float targetYaw = (float) Math.toDegrees(Math.atan2(direction.x(), direction.z()));
     double time = (session.tick + partial) * 0.05;
@@ -191,10 +193,12 @@ public final class CompanionRenderer {
             1);
     buffers.endBatch(type);
     poses.popPose();
-    if (settings.showTargetBeam
-        && session.activeTarget() != null
-        && BEAM_ACTIONS.contains(session.action)) {
-      renderTargetBeam(buffers, camera, position, session.activeTarget().position(), intensity);
+    if (settings.showTargetBeam) {
+      if (session.guideDestination != null) {
+        renderTargetBeam(buffers, camera, position, session.guideDestination, intensity);
+      } else if (session.activeTarget() != null && BEAM_ACTIONS.contains(session.action)) {
+        renderTargetBeam(buffers, camera, position, session.activeTarget().position(), intensity);
+      }
     }
     bubbles.render(event, session, settings, position);
   }

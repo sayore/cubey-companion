@@ -57,6 +57,7 @@ public final class SituationalBehavior {
   public int lightningStartleTicks;
   public int barrelRollTicks;
   public int petPlayTicks;
+  public int workClearanceTicks;
 
   public Point focusLookOverride;
   public Point specialGoalOverride;
@@ -64,6 +65,7 @@ public final class SituationalBehavior {
   public boolean wantForwardFov;
   public boolean triggerGreetingSound;
   public boolean triggerCelebrateSound;
+  public String pendingDurabilityWarning = "";
   public float wingmanRoll;
   public String forcedHat = "auto";
   public String activeHat = "none";
@@ -74,6 +76,7 @@ public final class SituationalBehavior {
   private float lastPlayerYaw;
   private final Set<Integer> seenDropIds = new HashSet<>();
   private final Set<Integer> seenLightningIds = new HashSet<>();
+  private final java.util.Map<String, Long> durabilityWarnedAt = new java.util.HashMap<>();
 
   public void tick(Minecraft mc, Point cubePos, long tick, boolean perched) {
     triggerGreetingSound = false;
@@ -91,9 +94,13 @@ public final class SituationalBehavior {
     if (lightningStartleTicks > 0) lightningStartleTicks--;
     if (barrelRollTicks > 0) barrelRollTicks--;
     if (petPlayTicks > 0) petPlayTicks--;
+    if (workClearanceTicks > 0) workClearanceTicks--;
 
     var player = mc.player;
     var level = mc.level;
+    if (player.swinging && workClearanceTicks < 50) {
+      workClearanceTicks = 65;
+    }
     specialGoalOverride = null;
 
     // Validate perched entity (pet/animal riding)
@@ -207,6 +214,9 @@ public final class SituationalBehavior {
 
       // 6. Cave / darkness companion
       darkMode = level.hasChunkAt(playerBp) && level.getMaxLocalRawBrightness(playerBp) < 5;
+
+      // Tool / armor 5% durability saver warning (local, 0 LLM tokens)
+      checkDurability(player, tick);
 
       // 4. Rain shyness
       boolean rainingOnCube =
@@ -367,6 +377,7 @@ public final class SituationalBehavior {
     wantForwardFov =
         !perched
             && perchedEntity == null
+            && workClearanceTicks == 0
             && (peeking
                 || concernTicks > 0
                 || celebrateTicks > 0
@@ -377,6 +388,33 @@ public final class SituationalBehavior {
                 || wingmanMode);
 
     activeHat = resolveHat(player, perched);
+  }
+
+  public void markWorking() {
+    workClearanceTicks = 75;
+  }
+
+  private void checkDurability(net.minecraft.client.player.LocalPlayer player, long tick) {
+    var items = new java.util.ArrayList<net.minecraft.world.item.ItemStack>(6);
+    items.add(player.getMainHandItem());
+    items.add(player.getOffhandItem());
+    player.getArmorSlots().forEach(items::add);
+    for (var stack : items) {
+      if (stack == null || stack.isEmpty() || !stack.isDamageableItem()) continue;
+      int max = stack.getMaxDamage();
+      if (max < 20) continue;
+      int rem = max - stack.getDamageValue();
+      int threshold = Math.max(3, max / 20);
+      if (rem <= threshold) {
+        String key = stack.getHoverName().getString();
+        Long last = durabilityWarnedAt.get(key);
+        if (last == null || tick - last > 1200) {
+          durabilityWarnedAt.put(key, tick);
+          pendingDurabilityWarning = "⚠ " + key + ": only " + rem + " durability left!";
+          break;
+        }
+      }
+    }
   }
 
   private String resolveHat(net.minecraft.client.player.LocalPlayer player, boolean perched) {

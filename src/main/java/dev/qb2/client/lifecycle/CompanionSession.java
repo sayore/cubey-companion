@@ -41,6 +41,8 @@ public final class CompanionSession {
   public boolean perched;
   public Point perchSpot;
   public Point perchLook;
+  public Point guideDestination;
+  public String guideLabel = "";
   private long perchedSinceTick;
   private Point lastTrackedPlayerPos;
   private float lastTrackedYaw, lastTrackedPitch;
@@ -60,9 +62,23 @@ public final class CompanionSession {
 
   public void summon() {
     wakeUp();
+    stopGuiding();
     action = "return";
     actionTarget = null;
     actionUntil = tick + 120;
+  }
+
+  public void startGuiding(Point dest, String label) {
+    if (dest == null) return;
+    wakeUp();
+    guideDestination = dest;
+    guideLabel = label == null || label.isBlank() ? "Target" : label;
+    bubbles.thought("➔ " + guideLabel, tick);
+  }
+
+  public void stopGuiding() {
+    guideDestination = null;
+    guideLabel = "";
   }
 
   public void focusOn(Observation obs) {
@@ -229,16 +245,27 @@ public final class CompanionSession {
     }
     trail.record(player);
     situational.tick(mc, motion.position(), tick, perched);
+    if (!situational.pendingDurabilityWarning.isBlank()) {
+      if (settings.thoughts) bubbles.thought(situational.pendingDurabilityWarning, tick);
+      situational.pendingDurabilityWarning = "";
+    }
     if (situational.concernTicks > 0 || situational.threatTicks > 0 || situational.celebrateTicks > 0) {
       wakeUp();
     }
     Vec3 forward = mc.player.getLookAngle().multiply(1, 0, 1).normalize();
     if (forward.lengthSqr() < 0.01) forward = new Vec3(0, 0, 1);
     Vec3 side = forward.cross(new Vec3(0, 1, 0)).normalize();
-    double homeHeight = situational.sneaking ? 1.05 : 1.55;
+    boolean working = situational.workClearanceTicks > 0;
+    double homeHeight = working ? 2.05 : situational.sneaking ? 1.05 : 1.55;
+    double forwardOffset = working ? 1.15 : 2.05;
+    double sideOffset = working ? 1.75 : 0.95;
     Point home =
         WorldSensor.point(
-            mc.player.position().add(forward.scale(2.05)).add(side.scale(0.95)).add(0, homeHeight, 0));
+            mc.player
+                .position()
+                .add(forward.scale(forwardOffset))
+                .add(side.scale(sideOffset))
+                .add(0, homeHeight, 0));
     if (tick == 1) motion.reset(home);
     if (actionUntil < tick && !perched) {
       var queued = actionQueue.pollNext();
@@ -288,7 +315,29 @@ public final class CompanionSession {
                   new AABB(v.x - .17, v.y - .17, v.z - .17, v.x + .17, v.y + .17, v.z + .17));
         };
     var target = actionTarget != null ? actionTarget : attention.target();
-    if (situational.perchedEntity != null && situational.specialGoalOverride != null) {
+    if (guideDestination != null) {
+      double distToDest = player.distance(guideDestination);
+      if (distToDest <= 3.0) {
+        Point aboveDest = guideDestination.add(new Point(0, 0.95, 0));
+        flightGoal = FlightClearance.nearest(player, aboveDest, settings.exploreRadius, free);
+        motion.tickSmoothFollow(player, flightGoal, settings.exploreRadius, free, trail);
+        if (motion.position().distance(aboveDest) < 1.2) {
+          bubbles.thought("✓ " + guideLabel, tick);
+          stopGuiding();
+        }
+      } else {
+        // Lead the player smoothly (~4.8 blocks ahead along the vector toward guideDestination)
+        Point toDest = guideDestination.subtract(player);
+        Point lead =
+            player
+                .add(toDest.unit().scale(Math.min(4.8, Math.min(distToDest, settings.exploreRadius * 0.85))))
+                .add(new Point(0, 1.35, 0));
+        flightGoal = FlightClearance.nearest(player, lead, settings.exploreRadius, free);
+        flightMode = "Guiding";
+        motion.tickSmoothFollow(player, flightGoal, settings.exploreRadius, free, trail);
+      }
+      state = bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : "Exploring";
+    } else if (situational.perchedEntity != null && situational.specialGoalOverride != null) {
       Point entitySeat = situational.specialGoalOverride;
       flightGoal = entitySeat;
       flightMode = "Riding";

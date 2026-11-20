@@ -92,6 +92,23 @@ public final class QB2ClientCommands {
                               return 1;
                             }))
                 .then(
+                    Commands.literal("death")
+                        .executes(
+                            ctx -> {
+                              controller.guideToDeath();
+                              return 1;
+                            }))
+                .then(
+                    Commands.literal("find")
+                        .then(
+                            Commands.argument("item", StringArgumentType.greedyString())
+                                .executes(
+                                    ctx -> {
+                                      controller.guideToItemAsync(
+                                          StringArgumentType.getString(ctx, "item"));
+                                      return 1;
+                                    })))
+                .then(
                     Commands.literal("flip")
                         .executes(
                             ctx -> {

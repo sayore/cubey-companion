@@ -49,6 +49,10 @@ public final class ClientController {
   private final List<Episode> pendingBackgroundEpisodes = new ArrayList<>();
   private final MemoryInspectorClient inspectorClient = new MemoryInspectorClient();
   private Point lastInteractedBlock;
+  private Point lastDeathPoint;
+  private boolean deathRecorded;
+  private long lastDirectConvoTick = -10000;
+  private String lastDirectPrompt = "";
   private boolean wasPlayerIdle;
   private long lastAmbientFallbackTick = -1000;
   private final dev.qb2.diagnostics.ClientSmokeProbe smoke =
@@ -155,6 +159,24 @@ public final class ClientController {
     }
     lastPlayerPosition = currentPosition;
     var s = configuration.settings();
+    if (player.isDeadOrDying()) {
+      if (!deathRecorded) {
+        deathRecorded = true;
+        lastDeathPoint = currentPosition;
+        int dx = (int) Math.floor(currentPosition.x());
+        int dy = (int) Math.floor(currentPosition.y());
+        int dz = (int) Math.floor(currentPosition.z());
+        queueBackgroundEpisode(
+            Episode.createAt(
+                scope,
+                "death_location",
+                List.of("death", "grave", "tod", "gestorben", "items"),
+                "Player died at " + dx + "," + dy + "," + dz,
+                currentPosition));
+      }
+    } else if (player.getHealth() > 1.0f) {
+      deathRecorded = false;
+    }
     session.apiBackoff = mind.inCooldown();
     session.tick(mc, s, mind.busy());
     if (session.situational.triggerGreetingSound) {
@@ -271,10 +293,25 @@ public final class ClientController {
   private void outgoingChat(ClientChatEvent event) {
     if (session == null || event.getMessage().startsWith("/")) return;
     String text = event.getMessage();
-    if (ChatHistory.addressed(text, configuration.settings().triggers)) {
+    boolean explicit = ChatHistory.addressed(text, configuration.settings().triggers);
+    boolean activeFollowUp =
+        !explicit
+            && session.tick - lastDirectConvoTick <= 300
+            && (mc.getSingleplayerServer() != null
+                || (!configuration.settings().serverChat && text.trim().endsWith("?")));
+    if (explicit || activeFollowUp) {
       event.setCanceled(true);
+      lastDirectConvoTick = session.tick;
+      lastDirectPrompt = text;
       mc.gui.getChat().addMessage(Component.literal("[You → QB2] " + text));
-      chat(ChatHistory.Source.PLAYER, text);
+      if (activeFollowUp) {
+        session.wakeUp();
+        session.markPlayerActive();
+        session.chat.add(ChatHistory.Source.PLAYER, text, session.tick);
+        enqueue(new Trigger("direct address", 0, text));
+      } else {
+        chat(ChatHistory.Source.PLAYER, text);
+      }
     }
   }
 
@@ -295,9 +332,49 @@ public final class ClientController {
   }
 
   private void interaction(InputEvent.InteractionKeyMappingTriggered event) {
-    if (session == null || !(mc.hitResult instanceof BlockHitResult hit) || event.isCanceled())
-      return;
+    if (session == null || mc.player == null || mc.level == null || event.isCanceled()) return;
     session.markPlayerActive();
+    // 1. Direct right-click interaction on Cubey's 0.26-radius hitbox
+    if (!event.isAttack() && clickedOnCompanion()) {
+      event.setCanceled(true);
+      event.setSwingHand(true);
+      if (mc.player.isCrouching()) {
+        if (session.perched) wakeCompanion();
+        else sitCompanion();
+        return;
+      }
+      var held = mc.player.getMainHandItem();
+      if (held.isEmpty()) {
+        session.wakeUp();
+        session.situational.celebrateTicks = 30;
+        session.situational.greetingTicks = 25;
+        session.bubbles.thought("♥", session.tick);
+        audio.play(
+            mc,
+            configuration.settings(),
+            session.motion.position(),
+            dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+      } else {
+        session.wakeUp();
+        String itemName = held.getHoverName().getString();
+        String itemId = BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
+        lastDirectConvoTick = session.tick;
+        lastDirectPrompt = itemName;
+        mc.gui.getChat().addMessage(Component.literal("[You → QB2] *shows " + itemName + "*"));
+        enqueue(
+            new Trigger(
+                "direct address",
+                0,
+                "The player is showing you the item in their hand: "
+                    + itemName
+                    + " ("
+                    + itemId
+                    + "). Use lookup_recipe or your modpack knowledge to explain what it does and how it is crafted or used."));
+      }
+      return;
+    }
+    session.situational.markWorking();
+    if (!(mc.hitResult instanceof BlockHitResult hit)) return;
     if (!event.isAttack()) {
       var bp = hit.getBlockPos();
       lastInteractedBlock = new Point(bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5);
@@ -526,6 +603,86 @@ public final class ClientController {
     mc.gui.getChat().addMessage(Component.translatable("msg.qb2.wake"));
   }
 
+  public void guideToDeath() {
+    if (session == null) return;
+    if (lastDeathPoint != null) {
+      session.startGuiding(lastDeathPoint, "Death location");
+      mc.gui
+          .getChat()
+          .addMessage(
+              Component.literal(
+                  "[QB2] Guiding you to your last death spot ("
+                      + (int) Math.floor(lastDeathPoint.x())
+                      + ", "
+                      + (int) Math.floor(lastDeathPoint.y())
+                      + ", "
+                      + (int) Math.floor(lastDeathPoint.z())
+                      + "). Follow my beam!"));
+      return;
+    }
+    searchMemoriesAsync(
+        "death grave gestorben",
+        results -> {
+          var hit = results.stream().filter(Episode::hasPosition).findFirst();
+          if (hit.isPresent() && session != null) {
+            var ep = hit.get();
+            session.startGuiding(new Point(ep.x(), ep.y(), ep.z()), "Death location");
+            mc.gui.getChat().addMessage(Component.literal("[QB2] Guiding you to your death spot: " + ep.text()));
+          } else {
+            mc.gui.getChat().addMessage(Component.literal("[QB2] No recorded death location found."));
+          }
+        });
+  }
+
+  public void guideToItemAsync(String query) {
+    if (session == null) return;
+    searchMemoriesAsync(
+        query,
+        results -> {
+          var hit = results.stream().filter(Episode::hasPosition).findFirst();
+          if (hit.isPresent() && session != null) {
+            var ep = hit.get();
+            session.startGuiding(new Point(ep.x(), ep.y(), ep.z()), query);
+            mc.gui
+                .getChat()
+                .addMessage(
+                    Component.literal(
+                        "[QB2] Guiding you to "
+                            + (int) Math.floor(ep.x())
+                            + ", "
+                            + (int) Math.floor(ep.y())
+                            + ", "
+                            + (int) Math.floor(ep.z())
+                            + " ("
+                            + ep.text()
+                            + ")"));
+          } else {
+            mc.gui
+                .getChat()
+                .addMessage(
+                    Component.literal(
+                        "[QB2] No container memory with coordinates found for '" + query + "'."));
+          }
+        });
+  }
+
+  private boolean clickedOnCompanion() {
+    if (session == null || mc.player == null) return false;
+    var eye = mc.player.getEyePosition();
+    var look = mc.player.getLookAngle();
+    double reach = 4.5;
+    if (mc.hitResult instanceof BlockHitResult bhr
+        && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
+      reach = Math.min(reach, bhr.getLocation().distanceTo(eye));
+    }
+    var end = eye.add(look.scale(reach));
+    Point cp = session.motion.position();
+    var box =
+        new net.minecraft.world.phys.AABB(
+            cp.x() - 0.26, cp.y() - 0.26, cp.z() - 0.26, cp.x() + 0.26, cp.y() + 0.26, cp.z() + 0.26);
+    return box.clip(eye, end).isPresent();
+  }
+
   public int pendingTriggerCount() {
     return triggers.size();
   }
@@ -589,6 +746,20 @@ public final class ClientController {
       return;
     }
 
+    if (activePriority == 0) {
+      lastDirectConvoTick = session.tick;
+      String lowerPrompt = lastDirectPrompt.toLowerCase(Locale.ROOT);
+      if (lowerPrompt.matches("(?s).*(wo |where |find|kiste|chest|truhe|lager|tod|died|grave|grab).*")) {
+        recalled.stream()
+            .filter(Episode::hasPosition)
+            .findFirst()
+            .ifPresent(
+                ep ->
+                    session.startGuiding(
+                        new Point(ep.x(), ep.y(), ep.z()),
+                        ep.kind().equals("death_location") ? "Death spot" : "Stored item"));
+      }
+    }
     session.apply(d);
     lastAction = d.action();
     if (!d.thought().isBlank())
