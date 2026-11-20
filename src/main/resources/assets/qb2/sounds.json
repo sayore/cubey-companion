@@ -1,34 +1,34 @@
 {
   "weeee": {
     "subtitle": "subtitles.qb2.weeee",
-    "sounds": ["qb2:weeee"]
+    "sounds": ["qb2:weeee1", "qb2:weeee2", "qb2:weeee3"]
   },
   "boing": {
     "subtitle": "subtitles.qb2.boing",
-    "sounds": ["qb2:boing"]
+    "sounds": ["qb2:boing1", "qb2:boing2", "qb2:boing3"]
   },
   "grab": {
     "subtitle": "subtitles.qb2.grab",
-    "sounds": ["qb2:grab"]
+    "sounds": ["qb2:grab1", "qb2:grab2", "qb2:grab3"]
   },
   "charge": {
     "subtitle": "subtitles.qb2.charge",
-    "sounds": ["qb2:charge"]
+    "sounds": ["qb2:charge1", "qb2:charge2"]
   },
   "happy": {
     "subtitle": "subtitles.qb2.happy",
-    "sounds": ["qb2:happy"]
+    "sounds": ["qb2:happy1", "qb2:happy2", "qb2:happy3"]
   },
   "speech": {
     "subtitle": "subtitles.qb2.speech",
-    "sounds": ["qb2:speech"]
+    "sounds": ["qb2:speech1", "qb2:speech2", "qb2:speech3"]
   },
   "summon": {
     "subtitle": "subtitles.qb2.summon",
-    "sounds": ["qb2:summon"]
+    "sounds": ["qb2:summon1", "qb2:summon2"]
   },
   "sleep": {
     "subtitle": "subtitles.qb2.sleep",
-    "sounds": ["qb2:sleep"]
+    "sounds": ["qb2:sleep1", "qb2:sleep2"]
   }
 }

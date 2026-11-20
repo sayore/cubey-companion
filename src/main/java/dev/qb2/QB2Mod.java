@@ -5,13 +5,21 @@ import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.loading.FMLEnvironment;
+import org.slf4j.LoggerFactory;
 
 @Mod("qb2")
 public final class QB2Mod {
   public QB2Mod(IEventBus modBus, ModContainer container) {
     modBus.addListener(CubeyNetwork::register);
     if (FMLEnvironment.dist.isClient()) {
-      ClientBootstrap.init(modBus, container);
+      try {
+        ClientBootstrap.init(modBus, container);
+      } catch (NoClassDefFoundError e) {
+        LoggerFactory.getLogger("qb2")
+            .error(
+                "[QB2] Server-only JAR (qb2-*-server.jar) was installed on a Minecraft client! "
+                    + "Please replace it with qb2-*-client.jar to enable Cubey on the client.");
+      }
     }
   }
 

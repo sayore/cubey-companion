@@ -19,6 +19,7 @@ public final class CompanionAudio {
 
   private long lastCueMs;
   private long lastChargeMs;
+  private final java.util.Random rng = new java.util.Random();
 
   public enum Cue {
     SPEECH(custom("speech"), 0.52f, 1.02f),
@@ -64,7 +65,10 @@ public final class CompanionAudio {
       lastCueMs = now;
     }
     float vol = (float) Math.clamp(cue.volume * settings.soundVolume, 0.0, 1.5);
+    // Natural +-5% pitch variation (0.95..1.05) on every sound cue so Cubey stays expressive!
+    float pitchJitter = 0.95f + rng.nextFloat() * 0.10f;
+    float finalPitch = Math.clamp(pitchOverride * pitchJitter, 0.5f, 2.0f);
     mc.level.playLocalSound(
-        at.x(), at.y(), at.z(), cue.event, SoundSource.PLAYERS, vol, pitchOverride, false);
+        at.x(), at.y(), at.z(), cue.event, SoundSource.PLAYERS, vol, finalPitch, false);
   }
 }

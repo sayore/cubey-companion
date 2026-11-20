@@ -3,7 +3,7 @@ loaderVersion="[4,)"
 license="MIT"
 [[mods]]
 modId="qb2"
-version="0.9.4"
+version="0.9.5"
 displayName="QB2 Companion"
 logoFile="assets/qb2/icon.png"
 authors="QB2 Team"
