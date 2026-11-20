@@ -167,7 +167,6 @@ public final class CubeyPackStorage extends SavedData {
         || item instanceof BowItem
         || item instanceof CrossbowItem
         || item instanceof ShieldItem
-        || item instanceof PotionItem
         || item == Items.GOLDEN_APPLE
         || item == Items.ENCHANTED_GOLDEN_APPLE
         || item == Items.AMETHYST_SHARD
@@ -176,13 +175,10 @@ public final class CubeyPackStorage extends SavedData {
         || item == Items.SOUL_LANTERN) {
       return true;
     }
-    String id = BuiltInRegistries.ITEM.getKey(item).toString();
-    return id.contains("sword")
-        || id.contains("bow")
-        || id.contains("shield")
-        || id.contains("wand")
-        || id.contains("staff")
-        || id.contains("lantern");
+    if (item instanceof PotionItem) {
+      return CubeyServerHelper.isHealingPotion(stack);
+    }
+    return false;
   }
 
   public PlayerPack getOrCreate(UUID playerId) {

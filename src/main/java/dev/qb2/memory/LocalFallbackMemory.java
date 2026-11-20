@@ -83,11 +83,21 @@ public final class LocalFallbackMemory {
 
   public synchronized List<NerveMemory.NearbyHit> nearby(
       String scope, Point pos, double radius, int topK) {
+    return nearby(scope, pos, radius, topK, "");
+  }
+
+  public synchronized List<NerveMemory.NearbyHit> nearby(
+      String scope, Point pos, double radius, int topK, String dimension) {
     ensureLoaded();
     if (scope == null || pos == null) return List.of();
+    boolean filterDim = dimension != null && !dimension.isBlank();
     var hits = new ArrayList<NerveMemory.NearbyHit>();
     for (Episode e : episodes) {
       if (!scope.equals(e.scope()) || !e.hasPosition()) continue;
+      if (filterDim
+          && e.dimension() != null
+          && !e.dimension().isBlank()
+          && !dimension.equals(e.dimension())) continue;
       double d = Math.hypot(e.x() - pos.x(), Math.hypot(e.y() - pos.y(), e.z() - pos.z()));
       if (d <= radius) hits.add(new NerveMemory.NearbyHit(e, Math.round(d * 10.0) / 10.0));
     }

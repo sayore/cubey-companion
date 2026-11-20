@@ -130,6 +130,10 @@ public final class CompanionRenderer {
       finalRoll += (float) (Math.sin(time * 52.0) * (6.0 + charge * 18.0));
       finalPitch += (float) (Math.cos(time * 48.0) * (4.0 + charge * 12.0));
     }
+    if (sit.dizzyTicks > 0) {
+      finalRoll += (float) Math.sin(time * 10.5) * 18f;
+      finalPitch += (float) Math.cos(time * 8.5) * 10f;
+    }
     session.lastRenderedYaw = finalYaw;
     session.lastRenderedPitch = finalPitch;
     session.lastRenderedRoll = finalRoll;

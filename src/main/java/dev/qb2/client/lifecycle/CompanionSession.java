@@ -503,7 +503,13 @@ public final class CompanionSession {
                   new AABB(v.x - .17, v.y - .17, v.z - .17, v.x + .17, v.y + .17, v.z + .17));
         };
     var target = actionTarget != null ? actionTarget : attention.target();
-    if (inCombat || working || guideDestination != null || actionTarget != null || grabThrow.isGrabbed() || grabThrow.isThrown()) {
+    if (inCombat
+        || working
+        || mc.player.isUnderWater()
+        || guideDestination != null
+        || actionTarget != null
+        || grabThrow.isGrabbed()
+        || grabThrow.isThrown()) {
       situational.perchedEntity = null;
     }
     if (grabThrow.isGrabbed()) {
@@ -531,8 +537,8 @@ public final class CompanionSession {
         flightMode = "Wingman";
         state = "Wingman";
       } else {
-        // Gently placed down without throwing
-        pendingGentlePlace = true;
+        // Gently placed down without throwing (only trigger target focus when no GUI screen opened)
+        if (mc.screen == null) pendingGentlePlace = true;
         flightMode = "Idle";
         state = "Idle";
       }

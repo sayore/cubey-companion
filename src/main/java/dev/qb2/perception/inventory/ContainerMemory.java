@@ -99,6 +99,14 @@ public final class ContainerMemory {
         .toList();
   }
 
+  public void copyFrom(ContainerMemory other) {
+    if (other == null) return;
+    lastSignature.clear();
+    lastSignature.putAll(other.lastSignature);
+    summaries.clear();
+    summaries.putAll(other.summaries);
+  }
+
   public void reset() {
     lastSignature.clear();
     summaries.clear();

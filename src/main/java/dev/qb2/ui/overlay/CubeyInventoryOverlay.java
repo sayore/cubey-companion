@@ -245,7 +245,9 @@ public final class CubeyInventoryOverlay {
     } else {
       gg.drawCenteredString(mc.font, "⚔", eqX + 9, sy + 5, 0x88E8B84B);
       if (hoverEq) {
-        hoveredHint = Component.literal("Cubey Ausrüstung (Schwert, Bogen, Schild, Trank, Amethyst)");
+        hoveredHint =
+            Component.literal(
+                "Cubey Ausrüstung: Schwert/Axt, Bogen/Armbrust, Schild, Heiltrank/Goldapfel, Laterne, Amethyst, Glowstone");
       }
     }
 
@@ -286,13 +288,23 @@ public final class CubeyInventoryOverlay {
       }
     }
 
-    // Render hover tooltip cleanly when cursor isn't carrying an item
-    if (mc.player.containerMenu.getCarried().isEmpty()) {
+    // Render hover tooltip cleanly when cursor isn't carrying an item, OR re-draw carried item ON TOP!
+    ItemStack carried = mc.player.containerMenu.getCarried();
+    if (carried.isEmpty()) {
       if (!hoveredStack.isEmpty()) {
         gg.renderTooltip(mc.font, hoveredStack, mouseX, mouseY);
       } else if (hoveredHint != null) {
         gg.renderTooltip(mc.font, hoveredHint, mouseX, mouseY);
       }
+    } else if (mouseX >= bx - 10
+        && mouseX <= bx + BAR_W + 10
+        && mouseY >= by - 10
+        && mouseY <= by + BAR_H + 10) {
+      gg.pose().pushPose();
+      gg.pose().translate(0f, 0f, 260f);
+      gg.renderItem(carried, mouseX - 8, mouseY - 8);
+      gg.renderItemDecorations(mc.font, carried, mouseX - 8, mouseY - 8);
+      gg.pose().popPose();
     }
   }
 

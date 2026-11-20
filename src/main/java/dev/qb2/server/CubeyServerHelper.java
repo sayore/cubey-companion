@@ -130,6 +130,8 @@ public final class CubeyServerHelper {
     int markedTargetId;
     long markedTargetUntilTick;
     long nextThrowBonkTick;
+    long nextThrowFetchTick;
+    long nextGiftTick;
     long nextLanternTick;
     long nextFeedTick;
     long nextMagnetTick;
@@ -155,6 +157,8 @@ public final class CubeyServerHelper {
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerChangedDimension);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerRespawn);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerLogout);
+    NeoForge.EVENT_BUS.addListener(
+        (net.neoforged.neoforge.event.server.ServerStoppingEvent e) -> RUNTIME.clear());
   }
 
   private static void handlePackAction(
@@ -320,6 +324,9 @@ public final class CubeyServerHelper {
     if (!sender.isAlive() || sender.isSpectator()) return;
     if (!(sender.level() instanceof ServerLevel level)) return;
     if (sender.getUUID().equals(payload.targetPlayerId())) return;
+    long tick = sender.server.getTickCount();
+    PlayerRuntime rt = RUNTIME.computeIfAbsent(sender.getUUID(), id -> new PlayerRuntime());
+    if (tick < rt.nextGiftTick) return;
     ServerPlayer target = level.getServer().getPlayerList().getPlayer(payload.targetPlayerId());
     if (target == null || !target.isAlive() || target.level() != level) return;
     if (target.distanceToSqr(sender) > 36.0 * 36.0) return;
@@ -340,6 +347,7 @@ public final class CubeyServerHelper {
     String itemId = BuiltInRegistries.ITEM.getKey(gift.getItem()).toString();
     if (!target.getInventory().add(gift)) return; // Target inventory full -> abort cleanly!
 
+    rt.nextGiftTick = tick + 60; // 3s anti-spam cooldown
     pack.items.set(slotFound, ItemStack.EMPTY);
     storage.setDirty();
     CubeyNetwork.sendPackSync(sender, pack.toSyncPayload());
@@ -370,6 +378,10 @@ public final class CubeyServerHelper {
         || !Double.isFinite(payload.z())) return;
     Vec3 land = new Vec3(payload.x(), payload.y(), payload.z());
     if (land.distanceToSqr(player.position()) > 30.0 * 30.0) return;
+    long tick = player.server.getTickCount();
+    PlayerRuntime rt = RUNTIME.computeIfAbsent(player.getUUID(), id -> new PlayerRuntime());
+    if (tick < rt.nextThrowFetchTick) return;
+    rt.nextThrowFetchTick = tick + 40; // 2s anti-vacuum rate limit
 
     CubeyPackStorage storage = CubeyPackStorage.get(player.server);
     CubeyPackStorage.PlayerPack pack = storage.getOrCreate(player.getUUID());
@@ -462,11 +474,13 @@ public final class CubeyServerHelper {
       ServerPlayer player,
       CubeyPackStorage storage,
       CubeyPackStorage.PlayerPack pack) {
-    if (player.isCrouching()) return;
+    if (player.isCrouching() || player.isSleeping()) return;
     AABB box = player.getBoundingBox().inflate(6.5, 2.5, 6.5);
     for (var itemEnt :
         level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, box)) {
       if (!itemEnt.isAlive() || itemEnt.hasPickUpDelay() || itemEnt.getAge() < 25) continue;
+      // Grace period (6s) so Cubey never immediately scoops up items the player just dropped with Q!
+      if (itemEnt.getOwner() == player && itemEnt.getAge() < 120) continue;
       double d2 = itemEnt.distanceToSqr(player);
       if (d2 < 2.2 * 2.2) continue; // Let the player pick up close items normally
       ItemStack st = itemEnt.getItem();
@@ -495,6 +509,7 @@ public final class CubeyServerHelper {
       ServerPlayer player,
       CubeyPackStorage storage,
       CubeyPackStorage.PlayerPack pack) {
+    if (player.isSleeping()) return;
     int usedSlots = 0;
     for (int i = CubeyPackStorage.BACKPACK_START; i < CubeyPackStorage.TOTAL_SLOTS; i++) {
       if (!pack.items.get(i).isEmpty()) usedSlots++;
@@ -507,7 +522,12 @@ public final class CubeyServerHelper {
       for (int dy = -2; dy <= 2; dy++) {
         for (int dz = -5; dz <= 5; dz++) {
           cursor.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
-          if (!(level.getBlockEntity(cursor) instanceof net.minecraft.world.Container cont)) {
+          var be = level.getBlockEntity(cursor);
+          // Strictly deposit ONLY into true storage chests/barrels/shulkers (NEVER furnaces/brewing stands!)
+          if (!(be instanceof net.minecraft.world.level.block.entity.ChestBlockEntity
+                  || be instanceof net.minecraft.world.level.block.entity.BarrelBlockEntity
+                  || be instanceof net.minecraft.world.level.block.entity.ShulkerBoxBlockEntity)
+              || !(be instanceof net.minecraft.world.Container cont)) {
             continue;
           }
           // Check each backpack slot for a matching item already present in this chest/barrel
@@ -818,8 +838,10 @@ public final class CubeyServerHelper {
       CubeyPackStorage.PlayerPack pack,
       PlayerRuntime rt,
       long tick) {
-    // Pause gardening while sprinting or recently in combat
-    if (player.isSprinting() || (player.tickCount - player.getLastHurtByMobTimestamp()) < 140) {
+    // Pause gardening while sleeping, sprinting, or recently in combat
+    if (player.isSleeping()
+        || player.isSprinting()
+        || (player.tickCount - player.getLastHurtByMobTimestamp()) < 140) {
       rt.nextHarvestTick = tick + 60;
       return;
     }
@@ -1200,7 +1222,7 @@ public final class CubeyServerHelper {
         null, player.blockPosition(), SoundEvents.SHIELD_BLOCK, SoundSource.PLAYERS, 0.85f, 1.2f);
   }
 
-  private static boolean isHealingPotion(ItemStack stack) {
+  public static boolean isHealingPotion(ItemStack stack) {
     if (!(stack.getItem() instanceof PotionItem)) return false;
     var contents = stack.get(net.minecraft.core.component.DataComponents.POTION_CONTENTS);
     if (contents == null) return false;

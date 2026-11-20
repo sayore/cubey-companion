@@ -84,7 +84,7 @@ public final class RadialQuestionScreen extends Screen {
   public boolean mouseClicked(double mouseX, double mouseY, int button) {
     if (button == 0) {
       int cx = width / 2;
-      int ey = height / 2 + 102;
+      int ey = Math.min(height / 2 + 102, height - 22);
       int pillW = 28;
       int startX = cx - (QUICK_EMOTES.size() * (pillW + 4)) / 2;
       for (int i = 0; i < QUICK_EMOTES.size(); i++) {
@@ -144,8 +144,8 @@ public final class RadialQuestionScreen extends Screen {
         cy + 3,
         0xFF88BCD8);
 
-    // Zero-Token Quick Emote Bar right below the radial wheel (synced to multiplayer!)
-    int ey = cy + 102;
+    // Zero-Token Quick Emote Bar right below the radial wheel (clamped to screen height!)
+    int ey = Math.min(cy + 102, height - 22);
     int pillW = 28;
     int startX = cx - (QUICK_EMOTES.size() * (pillW + 4)) / 2;
     for (int i = 0; i < QUICK_EMOTES.size(); i++) {

@@ -330,9 +330,7 @@ public final class ClientController {
                       session.chat.add(ChatHistory.Source.PLAYER, res.text(), session.tick);
                       lastDirectConvoTick = session.tick;
                       lastDirectPrompt = res.text();
-                      mc.gui
-                          .getChat()
-                          .addMessage(Component.literal("[Du (Voice) → QB2] " + res.text()));
+                      playerToCubey("(Voice) " + res.text());
                       if (handleInstantDirectCommand(res.text())) return;
                       enqueue(new Trigger("direct address", 0, res.text()));
                     }));
@@ -348,10 +346,14 @@ public final class ClientController {
     if (lastPlayerPosition != null && lastPlayerPosition.distance(currentPosition) > 96) {
       var prevChat = session.chat;
       var prevMachines = session.machineMemory;
+      var prevContainers = session.containerMemory;
+      var prevZones = new LinkedHashMap<>(session.baseZones);
       reset();
       session = new CompanionSession();
       session.chat.copyFrom(prevChat);
       session.machineMemory.copyFrom(prevMachines);
+      session.containerMemory.copyFrom(prevContainers);
+      session.baseZones.putAll(prevZones);
     }
     if (!packSyncRequested
         && mc.getConnection() != null
@@ -438,12 +440,23 @@ public final class ClientController {
     }
     if (session.pendingGentlePlace) {
       session.pendingGentlePlace = false;
-      if (s.radialMenu && mc.screen == null && mc.hitResult instanceof BlockHitResult hit) {
-        var bp = hit.getBlockPos();
-        if (mc.level != null
-            && !mc.level.getBlockState(bp).isAir()
-            && player.position().distanceTo(net.minecraft.world.phys.Vec3.atCenterOf(bp)) <= 5.0) {
-          openRadialForCurrentTarget(null);
+      if (mc.screen == null && mc.hitResult != null) {
+        boolean validTarget = false;
+        if (mc.hitResult instanceof BlockHitResult hit
+            && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
+          var bp = hit.getBlockPos();
+          validTarget =
+              mc.level != null
+                  && !mc.level.getBlockState(bp).isAir()
+                  && player.position().distanceTo(net.minecraft.world.phys.Vec3.atCenterOf(bp)) <= 6.0;
+        } else if (mc.hitResult instanceof net.minecraft.world.phys.EntityHitResult ehr) {
+          validTarget =
+              ehr.getEntity().isAlive()
+                  && player.position().distanceTo(ehr.getEntity().position()) <= 6.0;
+        }
+        if (validTarget) {
+          if (s.radialMenu) openRadialForCurrentTarget(null);
+          else lookHereCompanion();
         }
       }
     }
@@ -481,8 +494,9 @@ public final class ClientController {
                 ? lastInteractedBlock
                 : dev.qb2.perception.world.WorldSensor.point(player.position());
         String dim = level.dimension().location().toString();
-        session.containerMemory.record(scope, pos, inventory, dim);
-        containerMemory.record(scope, pos, inventory, dim).ifPresent(this::queueBackgroundEpisode);
+        session.containerMemory
+            .record(scope, pos, inventory, dim)
+            .ifPresent(this::queueBackgroundEpisode);
       }
       if (lastInventory != null && !lastInventory.equals(inventory)) {
         String summary = "Inventory/menu changed: " + inventory;
@@ -584,7 +598,11 @@ public final class ClientController {
 
   /** Feature #13: Musical Noteblock Echo — Cubey hums back nearby noteblocks! */
   private void onPlaySound(net.neoforged.neoforge.client.event.sound.PlaySoundEvent event) {
-    if (session == null || player == null || configuration.settings().paused || session.isSleeping())
+    if (session == null
+        || player == null
+        || configuration.settings().paused
+        || session.isSleeping()
+        || "silent".equals(configuration.settings().voiceMode))
       return;
     var sound = event.getSound();
     if (sound == null) return;
@@ -663,14 +681,26 @@ public final class ClientController {
       return true;
     }
 
-    // Feature #4b: Guide to saved Base Zone
+    // Feature #4b: Guide to saved Base Zone (checks RAM first, then persisted LocalFallbackMemory!)
     var guideMatcher =
         java.util.regex.Pattern.compile(
                 "(?i)(?:führ(?:e)? mich zu[mr]?|zeig(?:e)? mir (?:den weg zu[mr]?|das|die|den)|guide me to)\\s+([\\p{L}\\p{N}_\\- ]{2,28})")
             .matcher(clean);
     if (guideMatcher.find()) {
       String targetName = guideMatcher.group(1).replaceAll("[.!?]+$", "").trim();
-      Point pos = session.baseZones.get(targetName.toLowerCase(Locale.ROOT));
+      String key = targetName.toLowerCase(Locale.ROOT);
+      Point pos = session.baseZones.get(key);
+      if (pos == null) {
+        String currentDim = level.dimension().location().toString();
+        for (Episode ep : mind.searchLocalFallback(scope, List.of("zone", key), 4)) {
+          if (ep.hasPosition()
+              && (ep.dimension() == null || ep.dimension().isBlank() || currentDim.equals(ep.dimension()))) {
+            pos = new Point(ep.x(), ep.y(), ep.z());
+            session.baseZones.put(key, pos);
+            break;
+          }
+        }
+      }
       if (pos != null) {
         session.startGuiding(pos, targetName);
         speakLocally("Folge mir — ich führe dich zu '" + targetName + "'!");
@@ -708,7 +738,7 @@ public final class ClientController {
       event.setCanceled(true);
       lastDirectConvoTick = session.tick;
       lastDirectPrompt = text;
-      mc.gui.getChat().addMessage(Component.literal("[You → QB2] " + text));
+      playerToCubey(text);
       if (handleInstantDirectCommand(text)) return;
       if (activeFollowUp) {
         session.wakeUp();
@@ -795,7 +825,7 @@ public final class ClientController {
         String itemId = BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
         lastDirectConvoTick = session.tick;
         lastDirectPrompt = itemName;
-        mc.gui.getChat().addMessage(Component.literal("[You → QB2] *shows " + itemName + "*"));
+        playerToCubey("*zeigt " + itemName + "*");
         enqueue(
             new Trigger(
                 "direct address",
@@ -814,7 +844,13 @@ public final class ClientController {
         && mc.getConnection().hasChannel(dev.qb2.network.CubeyNetwork.C2SPeerInteractPayload.TYPE)) {
       Point eye = dev.qb2.perception.world.WorldSensor.point(mc.player.getEyePosition());
       Point look = dev.qb2.perception.world.WorldSensor.point(mc.player.getLookAngle());
-      var hitPeer = session.peers.findRayHit(eye, look, 5.5, 0.38);
+      double maxPeerReach = 5.5;
+      if (mc.hitResult instanceof BlockHitResult bhr
+          && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
+        maxPeerReach =
+            Math.min(maxPeerReach, bhr.getLocation().distanceTo(mc.player.getEyePosition()) + 0.35);
+      }
+      var hitPeer = session.peers.findRayHit(eye, look, maxPeerReach, 0.38);
       if (hitPeer.isPresent()) {
         var peer = hitPeer.get();
         var held = mc.player.getMainHandItem();
@@ -1128,7 +1164,7 @@ public final class ClientController {
           configuration.settings(),
           session.motion.position(),
           dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
-      mc.gui.getChat().addMessage(Component.literal("[QB2] " + label));
+      cubeyNotice(label);
       return;
     }
     audio.play(
@@ -1138,9 +1174,7 @@ public final class ClientController {
         dev.qb2.rendering.audio.CompanionAudio.Cue.LOOK_HERE);
     lastDirectConvoTick = session.tick;
     lastDirectPrompt = opt.label() + " " + targetName;
-    mc.gui
-        .getChat()
-        .addMessage(Component.literal("[You → QB2] " + opt.label() + " (" + targetName + ")"));
+    playerToCubey(opt.label() + " (" + targetName + ")");
     String fullPrompt =
         (targetContext.isBlank() ? "" : "Target: " + targetContext + ". ") + opt.prompt();
     enqueue(new Trigger("direct address", 0, fullPrompt));
@@ -1415,6 +1449,31 @@ public final class ClientController {
                 speakLocally(speech);
               }
             });
+  }
+
+  private void cubeyNotice(String msg) {
+    var s = configuration.settings();
+    String name = s.companionName == null || s.companionName.isBlank() ? "Cubey" : s.companionName;
+    int rgb = s.chatColorRgb();
+    mc.gui
+        .getChat()
+        .addMessage(
+            Component.literal("[" + name + "] ")
+                .withStyle(st -> st.withColor(rgb).withBold(true))
+                .append(Component.literal(msg).withStyle(net.minecraft.ChatFormatting.GRAY)));
+  }
+
+  private void playerToCubey(String msg) {
+    var s = configuration.settings();
+    String name = s.companionName == null || s.companionName.isBlank() ? "Cubey" : s.companionName;
+    int rgb = s.chatColorRgb();
+    mc.gui
+        .getChat()
+        .addMessage(
+            Component.literal("[Du → ")
+                .withStyle(net.minecraft.ChatFormatting.GRAY)
+                .append(Component.literal(name).withStyle(st -> st.withColor(rgb)))
+                .append(Component.literal("] " + msg).withStyle(net.minecraft.ChatFormatting.GRAY)));
   }
 
   private void speakLocally(String rawSpeech) {

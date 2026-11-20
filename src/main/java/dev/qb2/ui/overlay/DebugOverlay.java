@@ -69,7 +69,7 @@ public final class DebugOverlay {
         int tw = mc.font.width(pct);
         event.getGuiGraphics().drawString(mc.font, pct, cx - tw / 2, cy + 12, fillColor);
       } else {
-        String hint = "✦ Cubey gehalten · RMB halten zum Werfen · LMB loslassen zum Absetzen";
+        String hint = "✦ Cubey gehalten · RMB halten: Werfen (Apportieren/BONK!) · LMB loslassen: Ziel anvisieren";
         int tw = mc.font.width(hint);
         event
             .getGuiGraphics()

@@ -186,6 +186,7 @@ public final class Mind implements AutoCloseable {
                           () -> memory.search(catalog, job.keywords(), job.settings().memoryTopK));
                 }
                 dev.qb2.companion.movement.Point playerPos = extractPlayerPos(job.context());
+                String currentDim = extractDimension(job.context());
                 List<Episode> recalled = List.of();
                 List<NerveMemory.NearbyHit> nearbyHits = List.of();
                 try {
@@ -196,7 +197,7 @@ public final class Mind implements AutoCloseable {
                     } catch (InterruptedException e) {
                       throw e;
                     } catch (Exception ignored) {
-                      nearbyHits = localFallback.nearby(job.scope(), playerPos, 18.0, 4);
+                      nearbyHits = localFallback.nearby(job.scope(), playerPos, 18.0, 4, currentDim);
                     }
                   }
                   memoryStatus = "connected";
@@ -208,7 +209,7 @@ public final class Mind implements AutoCloseable {
                   recalled =
                       localFallback.search(job.scope(), job.keywords(), job.settings().memoryTopK);
                   if (playerPos != null) {
-                    nearbyHits = localFallback.nearby(job.scope(), playerPos, 18.0, 4);
+                    nearbyHits = localFallback.nearby(job.scope(), playerPos, 18.0, 4, currentDim);
                   }
                 }
                 var sections = new LinkedHashMap<>(job.context());
@@ -446,6 +447,19 @@ public final class Mind implements AutoCloseable {
                 if (outbox != null) pending = outbox.size();
               }
             });
+  }
+
+  public List<Episode> searchLocalFallback(String scope, List<String> keywords, int topK) {
+    return localFallback.search(scope, keywords, topK);
+  }
+
+  private static String extractDimension(Map<String, Object> context) {
+    if (context == null) return "";
+    Object worldObj = context.get("world");
+    if (worldObj instanceof Map<?, ?> w && w.get("dim") instanceof String d) {
+      return d.contains(":") ? d : ("minecraft:" + d);
+    }
+    return "";
   }
 
   public void close() {
