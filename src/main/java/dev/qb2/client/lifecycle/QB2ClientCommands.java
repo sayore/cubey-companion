@@ -71,6 +71,27 @@ public final class QB2ClientCommands {
                               return 1;
                             }))
                 .then(
+                    Commands.literal("sit")
+                        .executes(
+                            ctx -> {
+                              controller.sitCompanion();
+                              return 1;
+                            }))
+                .then(
+                    Commands.literal("nap")
+                        .executes(
+                            ctx -> {
+                              controller.sitCompanion();
+                              return 1;
+                            }))
+                .then(
+                    Commands.literal("wake")
+                        .executes(
+                            ctx -> {
+                              controller.wakeCompanion();
+                              return 1;
+                            }))
+                .then(
                     Commands.literal("search")
                         .then(
                             Commands.argument("query", StringArgumentType.greedyString())

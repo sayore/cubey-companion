@@ -48,10 +48,12 @@ public final class CompanionRenderer {
     PoseStack poses = new PoseStack();
     // NeoForge 1.21.1 already applies the camera model-view on RenderSystem at this stage.
     var camera = event.getCamera().getPosition();
+    boolean napping = "Napping".equals(session.state);
+    double bob = napping ? 0.0 : Math.sin(time * 2) * 0.025;
     poses.pushPose();
     poses.translate(
         position.x() - camera.x,
-        position.y() - camera.y + Math.sin(time * 2) * 0.025,
+        position.y() - camera.y + bob,
         position.z() - camera.z);
     poses.mulPose(Axis.YP.rotationDegrees(frame.yaw()));
     poses.mulPose(Axis.ZP.rotationDegrees(frame.roll()));
@@ -68,8 +70,8 @@ public final class CompanionRenderer {
     boolean thinking = "Thinking".equals(session.state);
     boolean speaking = "Speaking".equals(session.state);
     boolean errorVisual = session.apiBackoff || session.errorTintTicks > 0;
-    // State-reactive glowing edges: blue = idle, orange = thinking/request, cyan-white = speaking,
-    // reddish = API error/backoff.
+    // State-reactive glowing edges: blue = idle, dim indigo = napping, orange = thinking/request,
+    // cyan-white = speaking, reddish = API error/backoff.
     float er, eg, eb;
     if (errorVisual) {
       er = intensity;
@@ -83,6 +85,10 @@ public final class CompanionRenderer {
       er = intensity * 0.65f;
       eg = intensity * 0.96f;
       eb = intensity;
+    } else if (napping) {
+      er = intensity * 0.14f;
+      eg = intensity * 0.34f;
+      eb = intensity * 0.72f;
     } else {
       er = intensity * 0.22f;
       eg = intensity * 0.68f;
@@ -90,9 +96,10 @@ public final class CompanionRenderer {
     }
     renderEdges(poses, light, 0.1265f, 0.011f, er, eg, eb, 1.0f);
 
-    float sr = errorVisual ? intensity : thinking ? intensity : intensity * 0.90f;
-    float sg = errorVisual ? intensity * 0.35f : thinking ? intensity * 0.78f : intensity * 0.97f;
-    float sb = errorVisual ? intensity * 0.22f : thinking ? intensity * 0.40f : intensity;
+    float sensorScale = napping ? 0.42f : 1.0f;
+    float sr = (errorVisual ? intensity : thinking ? intensity : intensity * 0.90f) * sensorScale;
+    float sg = (errorVisual ? intensity * 0.35f : thinking ? intensity * 0.78f : intensity * 0.97f) * sensorScale;
+    float sb = (errorVisual ? intensity * 0.22f : thinking ? intensity * 0.40f : intensity) * sensorScale;
     // Four equal sensor tiles form a technical array, without eyes, mouth or facial animation.
     for (float x : SENSOR_OFFSETS)
       for (float y : SENSOR_OFFSETS)

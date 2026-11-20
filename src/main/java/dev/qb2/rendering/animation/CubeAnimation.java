@@ -16,11 +16,18 @@ public final class CubeAnimation {
     pitch += (Math.clamp(lookPitch, -55, 55) - pitch) * follow;
     boolean isThinking = state.equals("Thinking");
     boolean isSpeaking = state.equals("Speaking");
+    boolean isNapping = state.equals("Napping");
     boolean isActive =
         isThinking || state.equals("Exploring") || state.equals("Curious") || state.equals("Returning");
     thinking += ((isThinking ? 1 : 0) - thinking) * follow;
     speaking += ((isSpeaking ? 1 : 0) - speaking) * follow;
     active += ((isActive ? 1 : 0) - active) * follow;
+
+    if (isNapping) {
+      pitch += (0 - pitch) * follow;
+      float napLight = (float) (0.74 + 0.04 * Math.sin(time * 0.8));
+      return new Frame(yaw, pitch * 0.2f, 0f, napLight);
+    }
 
     // Lively multi-axis harmonic motion when actively thinking or investigating.
     float yawMotion =

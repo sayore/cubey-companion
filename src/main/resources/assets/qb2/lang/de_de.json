@@ -17,5 +17,7 @@
   "msg.qb2.paused": "[QB2] Pausiert.",
   "msg.qb2.resumed": "[QB2] Fortgesetzt.",
   "msg.qb2.summoned": "[QB2] Kehrt zu dir zurück.",
-  "msg.qb2.look_here": "[QB2] Schaut sich %s an."
+  "msg.qb2.look_here": "[QB2] Schaut sich %s an.",
+  "msg.qb2.nap": "[QB2] Setzt sich hin und döst.",
+  "msg.qb2.wake": "[QB2] Wieder wach."
 }

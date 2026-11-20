@@ -15,10 +15,26 @@ public final class BubbleRenderer {
   public void render(
       RenderLevelStageEvent event, CompanionSession session, Settings settings, Point position) {
     var mc = Minecraft.getInstance();
-    var bubble = session.bubbles.visible(session.tick, settings.thoughts, settings.speech);
+    var active = session.bubbles.visibleAll(session.tick, settings.thoughts, settings.speech);
     var camera = event.getCamera().getPosition();
     double distance = position.distance(new Point(camera.x, camera.y, camera.z));
-    if (bubble == null || distance < 0.5) return;
+    if (active.isEmpty() || distance < 0.5) return;
+    double yOffset = 0.32;
+    for (var bubble : active) {
+      yOffset += renderOne(event, mc, session, settings, position, camera, distance, bubble, yOffset);
+    }
+  }
+
+  private double renderOne(
+      RenderLevelStageEvent event,
+      Minecraft mc,
+      CompanionSession session,
+      Settings settings,
+      Point position,
+      net.minecraft.world.phys.Vec3 camera,
+      double distance,
+      Bubbles.Bubble bubble,
+      double yOffset) {
     var lines =
         new ArrayList<>(
             mc.font.split(
@@ -37,12 +53,12 @@ public final class BubbleRenderer {
             lines.size());
     PoseStack poses = new PoseStack();
     poses.translate(
-        position.x() - camera.x, position.y() - camera.y + 0.3, position.z() - camera.z);
+        position.x() - camera.x, position.y() - camera.y + yOffset, position.z() - camera.z);
     poses.mulPose(event.getCamera().rotation());
     poses.scale(layout.scale(), -layout.scale(), layout.scale());
     float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
     int alpha = (int) (255 * bubble.opacity(session.tick, partial));
-    if (alpha <= 4) return;
+    if (alpha <= 4) return 0;
     var buffers = mc.renderBuffers().bufferSource();
     for (int i = 0; i < lines.size(); i++) {
       var line = lines.get(i);
@@ -75,5 +91,6 @@ public final class BubbleRenderer {
           LightTexture.FULL_BRIGHT);
     }
     buffers.endBatch();
+    return lines.size() * 10.0 * layout.scale() + 0.14;
   }
 }

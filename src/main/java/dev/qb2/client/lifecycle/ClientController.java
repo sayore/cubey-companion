@@ -277,8 +277,10 @@ public final class ClientController {
     if (!session.dedup.accept("chat:" + text, session.tick, 40)) return;
     if (source == ChatHistory.Source.PLAYER) session.markPlayerActive();
     session.chat.add(source, text, session.tick);
-    if (ChatHistory.addressed(text, configuration.settings().triggers))
+    if (ChatHistory.addressed(text, configuration.settings().triggers)) {
+      session.wakeUp();
       enqueue(new Trigger("direct address", 0, text));
+    }
     else if (configuration.settings().autonomous
         && session.tick - session.lastSpeech > 1200
         && session.attention.target() != null
@@ -364,12 +366,21 @@ public final class ClientController {
         String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
         String key = id + "@" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
         String name = state.getBlock().getName().getString();
+        String stateText = state.toString();
+        var be = mc.level.getBlockEntity(pos);
+        if (be != null) {
+          stateText +=
+              " clientBlockEntity="
+                  + BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(be.getType())
+                  + dev.qb2.perception.world.ModpackInspector.describeClientCapabilities(
+                      mc.level, pos, state);
+        }
         focused =
             new Observation(
                 key,
                 id,
                 name,
-                state.toString(),
+                stateText,
                 new Point(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5),
                 10.0,
                 session.tick);
@@ -401,7 +412,53 @@ public final class ClientController {
         session.motion.position(),
         dev.qb2.rendering.audio.CompanionAudio.Cue.LOOK_HERE);
     mc.gui.getChat().addMessage(Component.translatable("msg.qb2.look_here", focused.name()));
-    enqueue(new Trigger("direct address", 0, "Look at " + focused.name() + " (" + focused.key() + ")"));
+    String nearbyContraption = "";
+    if (mc.hitResult instanceof BlockHitResult hit) {
+      nearbyContraption = scanContraptionNeighbors(hit.getBlockPos());
+    }
+    enqueue(
+        new Trigger(
+            "direct address",
+            0,
+            "The player is pointing directly at "
+                + focused.name()
+                + " ("
+                + focused.registryId()
+                + ", state: "
+                + focused.state()
+                + ")"
+                + (nearbyContraption.isBlank() ? "" : ". Nearby connected/surrounding blocks: " + nearbyContraption)
+                + ". Explain what this block/machine does, how it fits with the surrounding setup/contraption, and share useful facts — never just repeat its name."));
+  }
+
+  private String scanContraptionNeighbors(net.minecraft.core.BlockPos center) {
+    if (mc.level == null) return "";
+    var counts = new LinkedHashMap<String, Integer>();
+    for (int dx = -2; dx <= 2; dx++) {
+      for (int dy = -1; dy <= 2; dy++) {
+        for (int dz = -2; dz <= 2; dz++) {
+          if (dx == 0 && dy == 0 && dz == 0) continue;
+          var pos = center.offset(dx, dy, dz);
+          if (!mc.level.hasChunkAt(pos)) continue;
+          var state = mc.level.getBlockState(pos);
+          if (state.isAir()) continue;
+          String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+          if (id.equals("minecraft:grass_block")
+              || id.equals("minecraft:dirt")
+              || id.equals("minecraft:stone")
+              || id.equals("minecraft:deepslate")
+              || id.equals("minecraft:short_grass")
+              || id.equals("minecraft:tall_grass")) continue;
+          String label = state.getBlock().getName().getString() + " (" + id + ")";
+          counts.merge(label, 1, Integer::sum);
+          if (counts.size() >= 14) break;
+        }
+      }
+    }
+    if (counts.isEmpty()) return "";
+    return counts.entrySet().stream()
+        .map(e -> e.getValue() > 1 ? e.getValue() + "x " + e.getKey() : e.getKey())
+        .collect(java.util.stream.Collectors.joining(", "));
   }
 
   public void setPaused(boolean paused) {
@@ -423,6 +480,34 @@ public final class ClientController {
   public void lookHereCompanion() {
     if (session == null || configuration.settings().paused) return;
     handleLookHere();
+  }
+
+  public void sitCompanion() {
+    if (session == null || mc.level == null || configuration.settings().paused) return;
+    Point spot = null;
+    if (mc.hitResult instanceof BlockHitResult hit) {
+      var pos = hit.getBlockPos();
+      var below = mc.level.getBlockState(pos);
+      if (!below.isAir()
+          && !below.getCollisionShape(mc.level, pos).isEmpty()
+          && mc.level.getBlockState(pos.above()).isAir()) {
+        double topY =
+            pos.getY()
+                + below.getCollisionShape(mc.level, pos).max(net.minecraft.core.Direction.Axis.Y);
+        spot = new Point(pos.getX() + 0.5, topY + 0.125, pos.getZ() + 0.5);
+      }
+    }
+    if (spot == null) spot = CompanionSession.findPerchSpot(mc, session.motion.position());
+    if (spot != null) {
+      session.perchAt(spot);
+      mc.gui.getChat().addMessage(Component.translatable("msg.qb2.nap"));
+    }
+  }
+
+  public void wakeCompanion() {
+    if (session == null) return;
+    session.wakeUp();
+    mc.gui.getChat().addMessage(Component.translatable("msg.qb2.wake"));
   }
 
   public int pendingTriggerCount() {
