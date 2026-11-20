@@ -126,6 +126,7 @@ public final class CompanionSession {
 
   public void wakeUp() {
     situational.perchedEntity = null;
+    calmAreaSinceTick = tick;
     if (!perched) return;
     perched = false;
     perchSpot = null;
@@ -566,10 +567,12 @@ public final class CompanionSession {
   }
 
   public void apply(Decision d) {
-    if (!"rest".equals(d.action()) && (!d.speech().isBlank() || !"observe".equals(d.action()))) {
+    // If Cubey is going to speak or take an active action, always wake up first so he never talks
+    // about being "back by your side" while still visibly sleeping on the ground!
+    if (!d.speech().isBlank() || (!"rest".equals(d.action()) && !"observe".equals(d.action()))) {
       wakeUp();
     }
-    action = d.action();
+    action = (!d.speech().isBlank() && "rest".equals(d.action())) ? "observe" : d.action();
     actionUntil = tick + 160;
     if (Set.of("inspect", "approach", "go_to", "orbit").contains(d.action()))
       attention.holdUntil(actionUntil);

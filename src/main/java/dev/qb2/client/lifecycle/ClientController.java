@@ -1093,6 +1093,7 @@ public final class ClientController {
   }
 
   private void deliverDeferredAmbient(Settings s) {
+    if (session == null || session.isSleeping()) return;
     ambientBuffer
         .pollDeferredThought()
         .ifPresent(

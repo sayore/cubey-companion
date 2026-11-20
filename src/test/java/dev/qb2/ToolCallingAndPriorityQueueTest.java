@@ -384,5 +384,17 @@ final class ToolCallingAndPriorityQueueTest {
     att.holdUntil(300L);
     att.update(List.of(dirt), 110L);
     assertEquals("farmersdelight:rice@1,64,1", att.target().key());
+
+    // 12. PlayerTrail never bounces Cubey backward to stale trail start points!
+    var pt = new dev.qb2.companion.movement.PlayerTrail();
+    for (int x = 0; x <= 20; x += 2) {
+      pt.record(new dev.qb2.companion.movement.Point(x, 64, 0));
+    }
+    // Cubey is already at x=16, player is at x=21 -> nextWaypoint must move FORWARD (> 16), never back to x=0!
+    var wp =
+        pt.nextWaypoint(
+            new dev.qb2.companion.movement.Point(16, 65.35, 0),
+            new dev.qb2.companion.movement.Point(21, 65.35, 0));
+    assertTrue(wp.x() >= 17.5, "Expected forward waypoint >= 17.5 but got " + wp.x());
   }
 }

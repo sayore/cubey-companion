@@ -138,9 +138,12 @@ public final class Motion {
     double distFromPlayer = position.distance(center);
     boolean fastMover = playerSpeed > 0.22;
     boolean catchingUp = distFromPlayer > Math.min(radius, 3.6) || fastMover;
-    // Use PlayerTrail as a loose reference when lagging behind indoors; switch directly to target
-    // when sprinting/flying fast or when already close.
+    // Use PlayerTrail as a loose reference when lagging behind indoors; when already close to the
+    // player, clear stale breadcrumbs so Cubey never bounces back to an old point!
     Point boundedTarget = constrain(center, target, radius);
+    if (distFromPlayer <= 3.6 && trail != null) {
+      trail.clear();
+    }
     Point goal =
         (distFromPlayer > 3.6 && playerSpeed <= 0.42 && trail != null)
             ? trail.nextWaypoint(position, boundedTarget)
