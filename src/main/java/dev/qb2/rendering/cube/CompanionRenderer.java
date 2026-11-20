@@ -38,22 +38,38 @@ public final class CompanionRenderer {
     float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
     Point position = session.motion.interpolate(partial);
     var sit = session.situational;
+    boolean grabbedNow = session.grabThrow.isGrabbed();
+    boolean thrownNow = session.grabThrow.isThrown();
+    Point moveVel = thrownNow ? session.grabThrow.velocity() : session.motion.velocity();
+    double moveSpeed = moveVel.length();
+    // Align Cubey's body tangent to his flight trajectory whenever moving swiftly together,
+    // thrown, or in Wingman flight so the glowing 3D speed ribbons stream straight behind him!
+    boolean alignToMotion =
+        !grabbedNow
+            && !session.isSleeping()
+            && (thrownNow
+                || sit.wingmanMode
+                || (moveSpeed > 0.14
+                    && !session.bubbles.speaking(session.tick)
+                    && sit.greetingTicks == 0));
     Point look =
-        session.grabThrow.isGrabbed()
+        grabbedNow
             ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
-            : session.guideDestination != null
-                ? session.guideDestination
-                : sit.focusLookOverride != null
-                    ? sit.focusLookOverride
-                    : "Napping".equals(session.state) && session.perchLook != null
-                        ? session.perchLook
-                        : session.attention.target() == null
-                                || session.bubbles.speaking(session.tick)
-                                || session.bubbles.emoting(session.tick)
-                                || sit.greetingTicks > 0
-                                || sit.concernTicks > 0
-                            ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
-                            : session.attention.target().position();
+            : alignToMotion
+                ? position.add(moveVel.unit().scale(3.5))
+                : session.guideDestination != null
+                    ? session.guideDestination
+                    : sit.focusLookOverride != null
+                        ? sit.focusLookOverride
+                        : "Napping".equals(session.state) && session.perchLook != null
+                            ? session.perchLook
+                            : session.attention.target() == null
+                                    || session.bubbles.speaking(session.tick)
+                                    || session.bubbles.emoting(session.tick)
+                                    || sit.greetingTicks > 0
+                                    || sit.concernTicks > 0
+                                ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
+                                : session.attention.target().position();
     Point direction = look.subtract(position);
     float targetYaw = (float) Math.toDegrees(Math.atan2(direction.x(), direction.z()));
     double time = (session.tick + partial) * 0.05;
@@ -273,6 +289,9 @@ public final class CompanionRenderer {
       eb = intensity * tb;
     }
 
+    if (grabbed && mc.options.getCameraType().isFirstPerson()) {
+      poses.scale(0.76f, 0.76f, 0.76f);
+    }
     poses.scale(ms.stretchXZ(), ms.squashY(), ms.stretchXZ() + ms.aeroDelta() * 0.14f);
 
     float sensorScale = napping ? (float) (0.20 + (sleepBreath + 1.0) * 0.06) : 1.0f;

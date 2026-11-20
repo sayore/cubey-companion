@@ -519,9 +519,32 @@ public final class CompanionSession {
       Point lookUnit = WorldSensor.point(mc.player.getLookAngle().normalize());
       Point holdTarget = grabThrow.tickGrab(eyePos, lookUnit, lmbDown, rmbDown);
       if (holdTarget != null) {
+        // Hold Cubey visually in a free hand (bottom-right if main hand empty, else left/offhand!)
+        // so your crosshair stays 100% clear while aiming or charging a throw!
+        float charge = grabThrow.chargeRatio();
+        Vec3 lookVec = mc.player.getLookAngle().normalize();
+        Vec3 rightVec = lookVec.cross(new Vec3(0, 1, 0));
+        if (rightVec.lengthSqr() < 0.001) rightVec = new Vec3(1, 0, 0);
+        else rightVec = rightVec.normalize();
+        Vec3 upVec = rightVec.cross(lookVec).normalize();
+        boolean mainRight =
+            mc.options.mainHand().get() == net.minecraft.world.entity.HumanoidArm.RIGHT;
+        boolean useRight =
+            mc.player.getMainHandItem().isEmpty()
+                ? mainRight
+                : mc.player.getOffhandItem().isEmpty() ? !mainRight : mainRight;
+        double sideSign = useRight ? 1.0 : -1.0;
+        double fwdDist = 0.82 - charge * 0.22;
+        Vec3 handWorld =
+            mc.player
+                .getEyePosition()
+                .add(lookVec.scale(fwdDist))
+                .add(rightVec.scale(sideSign * (0.34 - charge * 0.04)))
+                .add(upVec.scale(-0.24 + charge * 0.07));
+        Point handPoint = WorldSensor.point(handWorld);
         Point safeHold =
-            free.test(holdTarget) ? holdTarget : FlightClearance.nearest(eyePos, holdTarget, 2.5, free);
-        Point smoothed = motion.position().lerp(safeHold, 0.55);
+            free.test(handPoint) ? handPoint : FlightClearance.nearest(eyePos, handPoint, 1.5, free);
+        Point smoothed = motion.position().lerp(safeHold, 0.72);
         motion.stepDirect(smoothed);
         flightGoal = safeHold;
         flightMode = "Curious";

@@ -238,6 +238,10 @@ public final class Motion {
     return previous.lerp(position, Math.clamp(alpha, 0, 1));
   }
 
+  public Point velocity() {
+    return velocity;
+  }
+
   public double speed() {
     return velocity.length();
   }
