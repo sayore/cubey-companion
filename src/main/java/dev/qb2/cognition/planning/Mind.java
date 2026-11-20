@@ -61,6 +61,13 @@ public final class Mind implements AutoCloseable {
             t.setDaemon(true);
             return t;
           });
+  private final ExecutorService retrievalWorker =
+      Executors.newSingleThreadExecutor(
+          r -> {
+            Thread t = new Thread(r, "qb2-retrieval");
+            t.setDaemon(true);
+            return t;
+          });
   private final HttpTransport http = new HttpTransport();
   private final Path outboxPath;
   private PersistentOutbox outbox;
@@ -119,11 +126,19 @@ public final class Mind implements AutoCloseable {
                 if (outbox.size() > PersistentOutbox.CAPACITY - 8)
                   throw new IllegalStateException("Memory queue full; cognition paused");
                 for (var event : job.events()) outbox.add(event);
+                var knowledgeScope = job.context().get("knowledgeScope");
+                Future<List<Episode>> knowledgeFuture = null;
+                if (knowledgeScope instanceof String catalog && catalog.matches("[a-f0-9]{64}")) {
+                  knowledgeFuture =
+                      retrievalWorker.submit(
+                          () -> memory.search(catalog, job.keywords(), job.settings().memoryTopK));
+                }
                 List<Episode> recalled = List.of();
                 try {
                   recalled = memory.search(job.scope(), job.keywords(), job.settings().memoryTopK);
                   memoryStatus = "connected";
                 } catch (InterruptedException e) {
+                  if (knowledgeFuture != null) knowledgeFuture.cancel(true);
                   throw e;
                 } catch (Exception e) {
                   memoryStatus = "unavailable; durable queue";
@@ -131,10 +146,9 @@ public final class Mind implements AutoCloseable {
                 var sections = new LinkedHashMap<>(job.context());
                 sections.put("memories", recalled);
                 knowledgeHits = 0;
-                var knowledgeScope = job.context().get("knowledgeScope");
-                if (knowledgeScope instanceof String catalog && catalog.matches("[a-f0-9]{64}")) {
+                if (knowledgeFuture != null) {
                   try {
-                    var facts = memory.search(catalog, job.keywords(), job.settings().memoryTopK);
+                    var facts = knowledgeFuture.get(6, TimeUnit.SECONDS);
                     knowledgeHits = facts.size();
                     sections.put(
                         "knowledge",
@@ -154,8 +168,10 @@ public final class Mind implements AutoCloseable {
                                         "client_registry_or_synced_recipe"))
                             .toList());
                   } catch (InterruptedException e) {
+                    knowledgeFuture.cancel(true);
                     throw e;
                   } catch (Exception e) {
+                    knowledgeFuture.cancel(true);
                     sections.put("knowledge", List.of());
                   }
                 }
@@ -290,6 +306,7 @@ public final class Mind implements AutoCloseable {
   public void close() {
     if (task != null) task.cancel(true);
     worker.shutdownNow();
+    retrievalWorker.shutdownNow();
     http.close();
   }
 }

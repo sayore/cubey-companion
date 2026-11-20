@@ -21,7 +21,20 @@ Knowledge records describe client registries or synced recipes; partial recipes 
 Private thought is not public speech. When speechAllowed is false, keep speech null. Do not repeat recent thoughts. Direct address deserves a useful reply.
 You cannot edit blocks, run commands, access files, send network requests or control the player.
 """;
-  private final Gson json = new Gson();
+  private static final Gson JSON = new Gson();
+  private static final Set<String> HIGH_WEIGHT_KEYS =
+      Set.of("request", "world", "memories", "knowledge", "reachableTargets");
+  private static final Set<String> PRESERVED_KEYS =
+      Set.of(
+          "key",
+          "registryId",
+          "dimension",
+          "action",
+          "source",
+          "kind",
+          "id",
+          "scope",
+          "createdAt");
 
   public String build(Map<String, Object> sections, int tokens) {
     int max = Math.max(200, tokens * 3 - INSTRUCTION.length() - 200);
@@ -32,30 +45,34 @@ You cannot edit blocks, run commands, access files, send network requests or con
     for (var section : sections.entrySet()) {
       int sectionWeight = weight(section.getKey(), sections);
       int share = Math.max(16, available * sectionWeight / left - section.getKey().length() - 12);
-      JsonElement element = json.toJsonTree(section.getValue());
-      if (json.toJson(element).length() > share) truncated.add(section.getKey());
-      for (int depth = 0; json.toJson(element).length() > share && depth < 10; depth++)
+      JsonElement element = JSON.toJsonTree(section.getValue());
+      int len = JSON.toJson(element).length();
+      if (len > share) truncated.add(section.getKey());
+      for (int depth = 0; len > share && depth < 10; depth++) {
         element = shrink(element);
-      if (json.toJson(element).length() > share) element = JsonNull.INSTANCE;
+        len = JSON.toJson(element).length();
+      }
+      if (len > share) {
+        element = JsonNull.INSTANCE;
+        len = 4;
+      }
       bounded.add(section.getKey(), element);
-      available -= json.toJson(element).length() + section.getKey().length() + 6;
+      available -= len + section.getKey().length() + 6;
       left -= sectionWeight;
     }
     if (!truncated.isEmpty()) bounded.add("truncatedSections", truncated);
-    return json.toJson(bounded);
+    return JSON.toJson(bounded);
   }
 
   private int weight(String key, Map<String, Object> sections) {
     if (key.equals("inventory")) {
-      String request = json.toJson(sections.get("request")).toLowerCase(Locale.ROOT);
+      String request = JSON.toJson(sections.get("request")).toLowerCase(Locale.ROOT);
       return request.matches(
               "(?s).*(inventar|inventory|chest|kiste|truhe|rucksack|backpack|menu).*")
           ? 12
           : 3;
     }
-    return Set.of("request", "world", "memories", "knowledge", "reachableTargets").contains(key)
-        ? 3
-        : 1;
+    return HIGH_WEIGHT_KEYS.contains(key) ? 3 : 1;
   }
 
   private JsonElement shrink(JsonElement element) {
@@ -78,19 +95,7 @@ You cannot edit blocks, run commands, access files, send network requests or con
               e ->
                   object.add(
                       e.getKey(),
-                      Set.of(
-                                  "key",
-                                  "registryId",
-                                  "dimension",
-                                  "action",
-                                  "source",
-                                  "kind",
-                                  "id",
-                                  "scope",
-                                  "createdAt")
-                              .contains(e.getKey())
-                          ? e.getValue()
-                          : shrink(e.getValue())));
+                      PRESERVED_KEYS.contains(e.getKey()) ? e.getValue() : shrink(e.getValue())));
       return object;
     }
     return element;

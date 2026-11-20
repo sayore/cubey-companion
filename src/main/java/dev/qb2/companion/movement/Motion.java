@@ -17,12 +17,17 @@ public final class Motion {
           new Point(0, 0, 0.10),
           new Point(0, 0, -0.10));
   private Point previous = Point.ZERO, position = Point.ZERO, velocity = Point.ZERO;
+  private Point cachedWaypoint, cachedGoal;
+  private int waypointTtl;
   private boolean initialized;
 
   public void reset(Point point) {
     position = point;
     previous = point;
     velocity = Point.ZERO;
+    cachedWaypoint = null;
+    cachedGoal = null;
+    waypointTtl = 0;
     initialized = true;
   }
 
@@ -52,8 +57,27 @@ public final class Motion {
     Point bounded = constrain(center, target, radius);
     Point steerTarget = bounded;
     if (!pathFree(position, bounded, free)) {
-      var waypoint = VoxelPathfinder.nextWaypoint(center, position, bounded, radius, free);
-      if (waypoint.isPresent()) steerTarget = waypoint.get();
+      boolean reuse =
+          cachedWaypoint != null
+              && waypointTtl > 0
+              && cachedGoal != null
+              && cachedGoal.distance(bounded) < 0.75
+              && position.distance(cachedWaypoint) > 0.35
+              && cachedWaypoint.distance(center) <= radius
+              && free.test(cachedWaypoint);
+      if (reuse) {
+        waypointTtl--;
+        steerTarget = cachedWaypoint;
+      } else {
+        var waypoint = VoxelPathfinder.nextWaypoint(center, position, bounded, radius, free);
+        cachedGoal = bounded;
+        cachedWaypoint = waypoint.orElse(null);
+        waypointTtl = cachedWaypoint != null ? 8 : 0;
+        if (cachedWaypoint != null) steerTarget = cachedWaypoint;
+      }
+    } else {
+      cachedWaypoint = null;
+      waypointTtl = 0;
     }
     Point delta = steerTarget.subtract(position);
     Point desired = delta.unit().scale(Math.min(MAX_STEP, delta.length() * 0.06));

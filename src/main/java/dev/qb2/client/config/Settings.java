@@ -21,6 +21,38 @@ public final class Settings {
     return fallbackModel != null && !fallbackModel.isBlank();
   }
 
+  public Settings copy() {
+    Settings c = new Settings();
+    c.provider = provider;
+    c.endpoint = endpoint;
+    c.model = model;
+    c.fallbackProvider = fallbackProvider;
+    c.fallbackEndpoint = fallbackEndpoint;
+    c.fallbackModel = fallbackModel;
+    c.nerveEndpoint = nerveEndpoint;
+    c.memoryTopK = memoryTopK;
+    c.perceptionRadius = perceptionRadius;
+    c.exploreRadius = exploreRadius;
+    c.fieldOfView = fieldOfView;
+    c.inferenceSeconds = inferenceSeconds;
+    c.tokenBudget = tokenBudget;
+    c.outputTokens = outputTokens;
+    c.timeoutSeconds = timeoutSeconds;
+    c.autonomous = autonomous;
+    c.thoughts = thoughts;
+    c.speech = speech;
+    c.particles = particles;
+    c.sounds = sounds;
+    c.showTargetBeam = showTargetBeam;
+    c.debug = debug;
+    c.paused = paused;
+    c.serverChat = serverChat;
+    c.glow = glow;
+    c.bubbleOpacity = bubbleOpacity;
+    c.triggers = triggers;
+    return c;
+  }
+
   public void validate() {
     memoryTopK = Math.clamp(memoryTopK, 1, 20);
     perceptionRadius = finite(perceptionRadius, 3, 24);

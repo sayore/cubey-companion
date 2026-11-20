@@ -14,6 +14,9 @@ import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 public final class CompanionRenderer {
   private static final ResourceLocation WHITE =
       ResourceLocation.fromNamespaceAndPath("qb2", "textures/cube.png");
+  private static final float[] SENSOR_OFFSETS = {-0.064f, 0.064f};
+  private static final java.util.Set<String> BEAM_ACTIONS =
+      java.util.Set.of("go_to", "inspect", "approach", "orbit");
   private final RenderType type = RenderType.entityTranslucent(WHITE);
   private long lastFrame = System.nanoTime();
   private final dev.qb2.rendering.animation.CubeAnimation animation =
@@ -66,8 +69,8 @@ public final class CompanionRenderer {
     float sg = session.apiBackoff ? intensity * 0.70f : intensity * 0.97f;
     float sb = session.apiBackoff ? intensity * 0.25f : intensity;
     // Four equal sensor tiles form a technical array, without eyes, mouth or facial animation.
-    for (float x : new float[] {-0.064f, 0.064f})
-      for (float y : new float[] {-0.064f, 0.064f})
+    for (float x : SENSOR_OFFSETS)
+      for (float y : SENSOR_OFFSETS)
         box(
             poses,
             light,
@@ -85,7 +88,7 @@ public final class CompanionRenderer {
     poses.popPose();
     if (settings.showTargetBeam
         && session.activeTarget() != null
-        && java.util.Set.of("go_to", "inspect", "approach", "orbit").contains(session.action)) {
+        && BEAM_ACTIONS.contains(session.action)) {
       renderTargetBeam(buffers, camera, position, session.activeTarget().position(), intensity);
     }
     bubbles.render(event, session, settings, position);
@@ -141,78 +144,30 @@ public final class CompanionRenderer {
       float g,
       float b,
       float a) {
-    face(
-        p,
-        v,
-        new float[][] {{x0, y0, z1}, {x1, y0, z1}, {x1, y1, z1}, {x0, y1, z1}},
-        0,
-        0,
-        1,
-        r,
-        g,
-        b,
-        a);
-    face(
-        p,
-        v,
-        new float[][] {{x1, y0, z0}, {x0, y0, z0}, {x0, y1, z0}, {x1, y1, z0}},
-        0,
-        0,
-        -1,
-        r,
-        g,
-        b,
-        a);
-    face(
-        p,
-        v,
-        new float[][] {{x1, y0, z1}, {x1, y0, z0}, {x1, y1, z0}, {x1, y1, z1}},
-        1,
-        0,
-        0,
-        r,
-        g,
-        b,
-        a);
-    face(
-        p,
-        v,
-        new float[][] {{x0, y0, z0}, {x0, y0, z1}, {x0, y1, z1}, {x0, y1, z0}},
-        -1,
-        0,
-        0,
-        r,
-        g,
-        b,
-        a);
-    face(
-        p,
-        v,
-        new float[][] {{x0, y1, z1}, {x1, y1, z1}, {x1, y1, z0}, {x0, y1, z0}},
-        0,
-        1,
-        0,
-        r,
-        g,
-        b,
-        a);
-    face(
-        p,
-        v,
-        new float[][] {{x0, y0, z0}, {x1, y0, z0}, {x1, y0, z1}, {x0, y0, z1}},
-        0,
-        -1,
-        0,
-        r,
-        g,
-        b,
-        a);
+    PoseStack.Pose pose = p.last();
+    quad(pose, v, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1, 0, 0, 1, r, g, b, a);
+    quad(pose, v, x1, y0, z0, x0, y0, z0, x0, y1, z0, x1, y1, z0, 0, 0, -1, r, g, b, a);
+    quad(pose, v, x1, y0, z1, x1, y0, z0, x1, y1, z0, x1, y1, z1, 1, 0, 0, r, g, b, a);
+    quad(pose, v, x0, y0, z0, x0, y0, z1, x0, y1, z1, x0, y1, z0, -1, 0, 0, r, g, b, a);
+    quad(pose, v, x0, y1, z1, x1, y1, z1, x1, y1, z0, x0, y1, z0, 0, 1, 0, r, g, b, a);
+    quad(pose, v, x0, y0, z0, x1, y0, z0, x1, y0, z1, x0, y0, z1, 0, -1, 0, r, g, b, a);
   }
 
-  private static void face(
-      PoseStack p,
+  private static void quad(
+      PoseStack.Pose pose,
       VertexConsumer v,
-      float[][] points,
+      float x0,
+      float y0,
+      float z0,
+      float x1,
+      float y1,
+      float z1,
+      float x2,
+      float y2,
+      float z2,
+      float x3,
+      float y3,
+      float z3,
       float nx,
       float ny,
       float nz,
@@ -220,12 +175,32 @@ public final class CompanionRenderer {
       float g,
       float b,
       float a) {
-    for (int i = 0; i < 4; i++)
-      v.addVertex(p.last(), points[i][0], points[i][1], points[i][2])
-          .setColor(r, g, b, a)
-          .setUv(i == 1 || i == 2 ? 1 : 0, i >= 2 ? 0 : 1)
-          .setOverlay(OverlayTexture.NO_OVERLAY)
-          .setLight(LightTexture.FULL_BRIGHT)
-          .setNormal(p.last(), nx, ny, nz);
+    vertex(pose, v, x0, y0, z0, 0, 1, nx, ny, nz, r, g, b, a);
+    vertex(pose, v, x1, y1, z1, 1, 1, nx, ny, nz, r, g, b, a);
+    vertex(pose, v, x2, y2, z2, 1, 0, nx, ny, nz, r, g, b, a);
+    vertex(pose, v, x3, y3, z3, 0, 0, nx, ny, nz, r, g, b, a);
+  }
+
+  private static void vertex(
+      PoseStack.Pose pose,
+      VertexConsumer v,
+      float x,
+      float y,
+      float z,
+      float u,
+      float tv,
+      float nx,
+      float ny,
+      float nz,
+      float r,
+      float g,
+      float b,
+      float a) {
+    v.addVertex(pose, x, y, z)
+        .setColor(r, g, b, a)
+        .setUv(u, tv)
+        .setOverlay(OverlayTexture.NO_OVERLAY)
+        .setLight(LightTexture.FULL_BRIGHT)
+        .setNormal(pose, nx, ny, nz);
   }
 }

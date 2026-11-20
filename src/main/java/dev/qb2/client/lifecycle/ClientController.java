@@ -45,6 +45,8 @@ public final class ClientController {
   private final dev.qb2.memory.SessionSummarizer summarizer =
       new dev.qb2.memory.SessionSummarizer();
   private final List<Episode> pendingBackgroundEpisodes = new ArrayList<>();
+  private final dev.qb2.inference.HttpTransport inspectorHttp =
+      new dev.qb2.inference.HttpTransport();
   private Point lastInteractedBlock;
   private final dev.qb2.diagnostics.ClientSmokeProbe smoke =
       new dev.qb2.diagnostics.ClientSmokeProbe();
@@ -100,6 +102,7 @@ public final class ClientController {
         (net.neoforged.neoforge.event.GameShuttingDownEvent e) -> {
           mind.close();
           knowledge.close();
+          inspectorHttp.close();
         });
   }
 
@@ -297,7 +300,7 @@ public final class ClientController {
   private void request(Trigger trigger) {
     session.lastRequest = session.tick;
     activePriority = trigger.priority();
-    var s = new Gson().fromJson(new Gson().toJson(configuration.settings()), Settings.class);
+    var s = configuration.settings().copy();
     var snapshot =
         InferenceSnapshot.capture(
             mc,
@@ -400,8 +403,9 @@ public final class ClientController {
     Thread t =
         new Thread(
             () -> {
-              try (var transport = new dev.qb2.inference.HttpTransport()) {
-                var mem = new dev.qb2.memory.nerve.NerveMemory(transport, s.nerveEndpoint, nerveKey);
+              try {
+                var mem =
+                    new dev.qb2.memory.nerve.NerveMemory(inspectorHttp, s.nerveEndpoint, nerveKey);
                 var results = mem.search(currentScope, finalWords, 12);
                 mc.execute(() -> cb.accept(results));
               } catch (Exception e) {
@@ -424,8 +428,9 @@ public final class ClientController {
     Thread t =
         new Thread(
             () -> {
-              try (var transport = new dev.qb2.inference.HttpTransport()) {
-                var mem = new dev.qb2.memory.nerve.NerveMemory(transport, s.nerveEndpoint, nerveKey);
+              try {
+                var mem =
+                    new dev.qb2.memory.nerve.NerveMemory(inspectorHttp, s.nerveEndpoint, nerveKey);
                 mem.delete(currentScope, id);
                 mc.execute(() -> cb.accept(true));
               } catch (Exception e) {

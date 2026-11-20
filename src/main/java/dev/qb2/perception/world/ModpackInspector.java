@@ -13,6 +13,7 @@ import net.neoforged.neoforge.capabilities.Capabilities;
  */
 public final class ModpackInspector {
   private static final List<String> KNOWN_VIEWER_MODS = List.of("emi", "jei", "rei", "jade", "wthit");
+  private static volatile List<String> cachedViewerMods;
 
   private ModpackInspector() {}
 
@@ -53,16 +54,21 @@ public final class ModpackInspector {
   }
 
   public static List<String> detectedViewerMods() {
+    List<String> cached = cachedViewerMods;
+    if (cached != null) return cached;
     var found = new ArrayList<String>();
     try {
       var list = ModList.get();
-      if (list == null) return found;
+      if (list == null) return List.of();
       for (String id : KNOWN_VIEWER_MODS) {
         if (list.isLoaded(id)) found.add(id);
       }
+      List<String> result = List.copyOf(found);
+      cachedViewerMods = result;
+      return result;
     } catch (Exception ignored) {
       /* Outside NeoForge runtime (e.g. unit tests). */
+      return List.of();
     }
-    return found;
   }
 }

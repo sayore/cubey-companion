@@ -12,82 +12,99 @@ public final class VoxelPathfinder {
   private static final int[][] CARDINALS = {
     {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
   };
+  private static final long MASK_21 = (1L << 21) - 1L;
+  private static final int BIAS_21 = 1 << 20;
 
-  private record Cell(int x, int y, int z) {
-    Point center() {
-      return new Point(x + 0.5, y + 0.5, z + 0.5);
-    }
-
-    int manhattan(Cell other) {
-      return Math.abs(x - other.x) + Math.abs(y - other.y) + Math.abs(z - other.z);
-    }
-  }
-
-  private record Node(Cell cell, double g, double f) {}
+  private record Node(long key, double g, double f) {}
 
   private VoxelPathfinder() {}
 
+  private static long pack(int x, int y, int z) {
+    return (((long) (x + BIAS_21) & MASK_21) << 42)
+        | (((long) (y + BIAS_21) & MASK_21) << 21)
+        | ((long) (z + BIAS_21) & MASK_21);
+  }
+
+  private static int unpackX(long key) {
+    return (int) ((key >>> 42) & MASK_21) - BIAS_21;
+  }
+
+  private static int unpackY(long key) {
+    return (int) ((key >>> 21) & MASK_21) - BIAS_21;
+  }
+
+  private static int unpackZ(long key) {
+    return (int) (key & MASK_21) - BIAS_21;
+  }
+
+  private static Point centerOf(long key) {
+    return new Point(unpackX(key) + 0.5, unpackY(key) + 0.5, unpackZ(key) + 0.5);
+  }
+
+  private static int manhattan(long a, long b) {
+    return Math.abs(unpackX(a) - unpackX(b))
+        + Math.abs(unpackY(a) - unpackY(b))
+        + Math.abs(unpackZ(a) - unpackZ(b));
+  }
+
   public static Optional<Point> nextWaypoint(
       Point sphereCenter, Point start, Point goal, double radius, Predicate<Point> free) {
-    Cell startCell = toCell(start);
-    Cell goalCell = toCell(goal);
-    if (startCell.equals(goalCell)) return Optional.empty();
+    long startKey = pack((int) Math.floor(start.x()), (int) Math.floor(start.y()), (int) Math.floor(start.z()));
+    long goalKey = pack((int) Math.floor(goal.x()), (int) Math.floor(goal.y()), (int) Math.floor(goal.z()));
+    if (startKey == goalKey) return Optional.empty();
     if (start.distance(goal) > Math.max(radius * 2 + 2, 24)) return Optional.empty();
 
     var open = new PriorityQueue<Node>(Comparator.comparingDouble(Node::f));
-    var gScore = new HashMap<Cell, Double>();
-    var parent = new HashMap<Cell, Cell>();
-    var closed = new HashSet<Cell>();
+    var gScore = new HashMap<Long, Double>(64);
+    var parent = new HashMap<Long, Long>(64);
+    var closed = new HashSet<Long>(64);
 
-    gScore.put(startCell, 0.0);
-    open.add(new Node(startCell, 0.0, startCell.manhattan(goalCell)));
+    gScore.put(startKey, 0.0);
+    open.add(new Node(startKey, 0.0, manhattan(startKey, goalKey)));
 
-    Cell best = startCell;
-    int bestHeuristic = startCell.manhattan(goalCell);
+    long best = startKey;
+    int bestHeuristic = manhattan(startKey, goalKey);
     int expanded = 0;
 
     while (!open.isEmpty() && expanded < MAX_EXPANSIONS) {
       Node current = open.poll();
-      if (!closed.add(current.cell)) continue;
+      if (!closed.add(current.key)) continue;
       expanded++;
 
-      int h = current.cell.manhattan(goalCell);
+      int h = manhattan(current.key, goalKey);
       if (h < bestHeuristic) {
         bestHeuristic = h;
-        best = current.cell;
+        best = current.key;
       }
-      if (current.cell.equals(goalCell)) {
-        best = goalCell;
+      if (current.key == goalKey) {
+        best = goalKey;
         break;
       }
 
+      int cx = unpackX(current.key);
+      int cy = unpackY(current.key);
+      int cz = unpackZ(current.key);
       for (int[] dir : CARDINALS) {
-        Cell neighbor =
-            new Cell(current.cell.x + dir[0], current.cell.y + dir[1], current.cell.z + dir[2]);
+        long neighbor = pack(cx + dir[0], cy + dir[1], cz + dir[2]);
         if (closed.contains(neighbor)) continue;
-        Point np = neighbor.center();
+        Point np = centerOf(neighbor);
         if (np.distance(sphereCenter) > radius) continue;
-        if (!neighbor.equals(goalCell) && !free.test(np)) continue;
-        if (neighbor.equals(goalCell) && !free.test(np)) continue;
+        if (!free.test(np)) continue;
 
         double tentativeG = current.g + 1.0;
         if (tentativeG < gScore.getOrDefault(neighbor, Double.POSITIVE_INFINITY)) {
           gScore.put(neighbor, tentativeG);
-          parent.put(neighbor, current.cell);
-          open.add(new Node(neighbor, tentativeG, tentativeG + neighbor.manhattan(goalCell)));
+          parent.put(neighbor, current.key);
+          open.add(new Node(neighbor, tentativeG, tentativeG + manhattan(neighbor, goalKey)));
         }
       }
     }
 
-    if (best.equals(startCell)) return Optional.empty();
-    Cell step = best;
-    while (parent.containsKey(step) && !parent.get(step).equals(startCell)) {
+    if (best == startKey) return Optional.empty();
+    long step = best;
+    while (parent.containsKey(step) && parent.get(step) != startKey) {
       step = parent.get(step);
     }
-    return Optional.of(step.center());
-  }
-
-  private static Cell toCell(Point p) {
-    return new Cell((int) Math.floor(p.x()), (int) Math.floor(p.y()), (int) Math.floor(p.z()));
+    return Optional.of(centerOf(step));
   }
 }

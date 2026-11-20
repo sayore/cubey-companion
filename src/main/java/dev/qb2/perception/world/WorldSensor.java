@@ -12,6 +12,7 @@ import net.minecraft.world.phys.*;
 
 public final class WorldSensor {
   private final Map<String, String> previous = new LinkedHashMap<>();
+  private final Map<Integer, String> stateStrings = new HashMap<>();
   private final List<String> changes = new ArrayList<>();
 
   public List<Observation> sample(Minecraft mc, Point cube, Point facing, Settings s, long tick) {
@@ -40,7 +41,9 @@ public final class WorldSensor {
       if (state.isAir()) continue;
       String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
       String key = id + "@" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
-      String stateText = state.toString();
+      int stateId = net.minecraft.world.level.block.Block.getId(state);
+      if (stateStrings.size() > 512) stateStrings.clear();
+      String stateText = stateStrings.computeIfAbsent(stateId, ignored -> state.toString());
       var be = mc.level.getBlockEntity(pos);
       if (be != null) {
         stateText +=

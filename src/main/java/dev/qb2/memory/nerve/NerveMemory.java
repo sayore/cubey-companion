@@ -27,7 +27,7 @@ public final class NerveMemory {
     for (var episode : episodes) {
       int size = json.toJson(episode).getBytes(java.nio.charset.StandardCharsets.UTF_8).length + 1;
       if (size > 100000) throw new IllegalArgumentException("Knowledge record too large");
-      if (bytes + size > 100000 || batch.size() == 24) {
+      if (bytes + size > 512000 || batch.size() == 128) {
         http.post(endpoint + "/knowledge", key, false, json.toJson(batch), 25);
         batch.clear();
         bytes = 2;
