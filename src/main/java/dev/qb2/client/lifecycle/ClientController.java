@@ -746,12 +746,15 @@ public final class ClientController {
       event.setSwingHand(false);
       return;
     }
-    // 0b. Left-click directly on Cubey -> Grab him into your gravity hold (disabled during combat
-    //     or while holding a weapon/mining tool so swings NEVER accidentally grab Cubey!).
+    // 0b. Left-click directly on Cubey -> Grab him into your gravity hold (with empty hand always
+    //     allowed; disabled while holding a weapon/mining tool or during combat with an item!).
+    var mainHand = mc.player.getMainHandItem();
+    boolean emptyHand = mainHand.isEmpty();
     if (event.isAttack()
-        && session.situational.combatTicks == 0
-        && !dev.qb2.companion.behavior.SituationalBehavior.isWeapon(mc.player.getMainHandItem())
-        && !dev.qb2.companion.behavior.SituationalBehavior.isMiningTool(mc.player.getMainHandItem())
+        && (emptyHand
+            || (session.situational.combatTicks == 0
+                && !dev.qb2.companion.behavior.SituationalBehavior.isWeapon(mainHand)
+                && !dev.qb2.companion.behavior.SituationalBehavior.isMiningTool(mainHand)))
         && clickedOnCompanion()) {
       event.setCanceled(true);
       event.setSwingHand(false);
@@ -1283,16 +1286,17 @@ public final class ClientController {
     if (session == null || mc.player == null) return false;
     var eye = mc.player.getEyePosition();
     var look = mc.player.getLookAngle();
-    double reach = 4.5;
+    double reach = 5.5;
     if (mc.hitResult instanceof BlockHitResult bhr
         && mc.hitResult.getType() == net.minecraft.world.phys.HitResult.Type.BLOCK) {
-      reach = Math.min(reach, bhr.getLocation().distanceTo(eye));
+      // Allow +0.35 block grace so Cubey perched on a block/wall is still cleanly clickable!
+      reach = Math.min(reach, bhr.getLocation().distanceTo(eye) + 0.35);
     }
     var end = eye.add(look.scale(reach));
     Point cp = session.motion.position();
     var box =
         new net.minecraft.world.phys.AABB(
-            cp.x() - 0.26, cp.y() - 0.26, cp.z() - 0.26, cp.x() + 0.26, cp.y() + 0.26, cp.z() + 0.26);
+            cp.x() - 0.38, cp.y() - 0.38, cp.z() - 0.38, cp.x() + 0.38, cp.y() + 0.38, cp.z() + 0.38);
     return box.clip(eye, end).isPresent();
   }
 
