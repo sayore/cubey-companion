@@ -30,6 +30,7 @@ public final class SettingsScreen extends Screen {
       List.of(
           "autonomous",
           "smoothFollow",
+          "multiplayerSync",
           "paused",
           "serverChat",
           "exploreRadius",
@@ -84,6 +85,7 @@ public final class SettingsScreen extends Screen {
           Map.entry("nerveEndpoint", "NERVE Bridge URL"),
           Map.entry("autonomous", "Autonomous Curiosity"),
           Map.entry("smoothFollow", "Smooth Trail Follow"),
+          Map.entry("multiplayerSync", "Multiplayer Cubey Sync"),
           Map.entry("paused", "Pause Companion"),
           Map.entry("serverChat", "Send to Public Server Chat"),
           Map.entry("exploreRadius", "Explore Radius"),

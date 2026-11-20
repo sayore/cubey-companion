@@ -14,7 +14,7 @@ Cubey ist kein bloßes Chatfenster, sondern ein physisch in der Spielwelt präse
 
 ## Highlights
 
-- **100 % Clientseitig & Multiplayer-sicher:** Keine Server-Mod, keine eigenen Netzwerkpakete. Andere Spieler sehen Cubeys Nachrichten nicht (optionaler Opt-in `serverChat`).
+- **100 % Clientseitig & optionaler Multiplayer-Cubey-Sync (`v0.9.3`):** Funktioniert auf jedem Vanilla- oder Mod-Server ohne Server-Pflicht. Ist `qb2` optional auch auf dem Server installiert (`PayloadRegistrar.optional()`), sehen Spieler im Umkreis von 48 Blöcken gegenseitig ihre Cubeys samt 3D-Hüten, Status-Leuchten, Schlafpose und optional geteilten Sprechblasen – gehärtet mit Anti-Spoofing-Radiusprüfung (24m), Enum-Whitelisting und 80ms Rate-Limiter. Zusätzlich gibt es **8 seltene soziale Choreografien** (`SocialChoreography`: Doppel-Helix-Walzer mit Resonanz-Lichtbogen, synchroner Barrel-Flip, Antennen-Boop, Hut-Spiegelung zwischen Cubeys sowie Schulter-Sitzen, Peekaboo-Scan, Halo-Orbit und Friedens-Crouch-Verbeugung gegenüber anderen Spielern).
 - **Lebendige Physik & Präsenz (0 LLM-Tokens):**
   - **Kein Teleportieren / Rubber-Banding:** Cubey zeichnet deinen gelaufenen Weg als Breadcrumb-Spur (`PlayerTrail`) auf und fliegt dir weich durch Türen und Gänge hinterher (`VoxelPathfinder` 3D-A\*).
   - **Dynamischer Wingman-Modus:** Erkennt automatisch, wenn du mit der Elytra fliegst, im Boot/Minecart sitzt oder ein Flugzeug aus *Immersive Aircraft* steuerst – passt seine Geschwindigkeit bis 2,4 Blöcke/Tick an und legt sich dynamisch mit in deine Kurven.
@@ -41,7 +41,7 @@ Voraussetzung zum Bauen: **Java 21**.
 ./scripts/install.sh /pfad/zu/deiner/minecraft-instanz
 ```
 
-Oder kopiere `build/libs/qb2-0.9.2.jar` direkt in den `mods/`-Ordner deiner Minecraft-1.21.1-NeoForge-Instanz (z. B. in Prism Launcher oder der Modrinth App).
+Oder kopiere `build/libs/qb2-0.9.3.jar` direkt in den `mods/`-Ordner deiner Minecraft-1.21.1-NeoForge-Instanz (z. B. in Prism Launcher oder der Modrinth App).
 
 ---
 

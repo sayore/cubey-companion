@@ -14,7 +14,7 @@ public final class Settings {
   public double perceptionRadius = 10, exploreRadius = 7, fieldOfView = 110;
   public int inferenceSeconds = 20, speechSeconds = 45, tokenBudget = 950, outputTokens = 600, timeoutSeconds = 25;
   public boolean autonomous = true, thoughts = true, speech = true, particles = true;
-  public boolean sounds = true, showTargetBeam = true, smoothFollow = true;
+  public boolean sounds = true, showTargetBeam = true, smoothFollow = true, multiplayerSync = true;
   public boolean debug = false, paused = false, serverChat = false;
   public double glow = 0.85, bubbleOpacity = 0.8;
   public String triggers = "@cube,@qb,qb2";
@@ -64,6 +64,7 @@ public final class Settings {
     c.sounds = sounds;
     c.showTargetBeam = showTargetBeam;
     c.smoothFollow = smoothFollow;
+    c.multiplayerSync = multiplayerSync;
     c.debug = debug;
     c.paused = paused;
     c.serverChat = serverChat;

@@ -191,4 +191,99 @@ final class ToolCallingAndPriorityQueueTest {
       server.stop(0);
     }
   }
+
+  @Test
+  void multiplayerSyncValidatorAndRemoteTrackerEnforceSecurityAndInterpolation() {
+    var ownerPos = new dev.qb2.companion.movement.Point(100.0, 64.0, 100.0);
+    // 1. Valid payload within 24 blocks passes and sanitizes control chars / formatting codes
+    var ok =
+        dev.qb2.network.CubeySyncValidator.validate(
+            ownerPos,
+            102.5,
+            65.0,
+            101.0,
+            420.0f,
+            45.0f,
+            10.0f,
+            "Curious",
+            "miner",
+            "§aHello\u0007 world!");
+    assertNotNull(ok);
+    assertEquals("Curious", ok.state());
+    assertEquals("miner", ok.hat());
+    assertEquals("aHello  world!", ok.publicSpeech());
+
+    // 2. Anti-spoofing: reject Cubey > 24 blocks away from owner or with NaN coordinates
+    var spoofed =
+        dev.qb2.network.CubeySyncValidator.validate(
+            ownerPos, 150.0, 64.0, 100.0, 0.0f, 0.0f, 0.0f, "Idle", "none", "");
+    assertNull(spoofed);
+    var nanCoord =
+        dev.qb2.network.CubeySyncValidator.validate(
+            ownerPos, Double.NaN, 64.0, 100.0, 0.0f, 0.0f, 0.0f, "Idle", "none", "");
+    assertNull(nanCoord);
+
+    // 3. Unknown state/hat fall back to safe defaults
+    var unknownEnums =
+        dev.qb2.network.CubeySyncValidator.validate(
+            ownerPos, 101.0, 64.0, 101.0, 0.0f, 0.0f, 0.0f, "HACKED_STATE", "exploit_hat", "");
+    assertNotNull(unknownEnums);
+    assertEquals("Idle", unknownEnums.state());
+    assertEquals("antenna", unknownEnums.hat());
+
+    // 4. Rate limiter blocks bursts under 80ms (80_000_000 ns)
+    var validator = new dev.qb2.network.CubeySyncValidator();
+    UUID playerA = UUID.randomUUID();
+    assertTrue(validator.allowRate(playerA, 100_000_000L));
+    assertFalse(validator.allowRate(playerA, 150_000_000L));
+    assertTrue(validator.allowRate(playerA, 185_000_000L));
+
+    // 5. RemoteCompanionTracker tracks, interpolates, and finds nearby peers for Cubey-to-Cubey nod
+    var tracker = new dev.qb2.network.RemoteCompanionTracker();
+    UUID peerId = UUID.randomUUID();
+    tracker.updatePeer(
+        peerId,
+        "Alex",
+        new dev.qb2.companion.movement.Point(10.0, 64.0, 10.0),
+        90.0f,
+        15.0f,
+        0.0f,
+        "Napping",
+        "sleep",
+        "Zzz",
+        100L);
+    tracker.prune(new dev.qb2.companion.movement.Point(11.0, 64.0, 10.0), 101L);
+    assertEquals(1, tracker.activePeers().size());
+    assertTrue(
+        tracker.nearestPeer(new dev.qb2.companion.movement.Point(11.5, 64.0, 10.0), 3.5).isPresent());
+    // Expire after >100 ticks without packet
+    tracker.prune(new dev.qb2.companion.movement.Point(11.0, 64.0, 10.0), 250L);
+    assertEquals(0, tracker.activePeers().size());
+
+    // 6. SocialChoreography enforces rare cooldowns and computes 3D choreography poses
+    var social = new dev.qb2.companion.behavior.SocialChoreography();
+    UUID otherPlayer = UUID.randomUUID();
+    // Reactive crouch-greeting triggers immediately
+    assertTrue(
+        social.tryStartOtherPlayerEmote(otherPlayer, "Steve", true, true, 1000L, 3.0));
+    assertEquals(
+        dev.qb2.companion.behavior.SocialChoreography.Emote.PLAYER_CROUCH_BOW,
+        social.activeEmote());
+    assertEquals("♥ o/", social.consumePendingBubble());
+    var bowPose =
+        social.computePose(
+            playerA,
+            new dev.qb2.companion.movement.Point(10.0, 65.0, 10.0),
+            new dev.qb2.companion.movement.Point(12.0, 65.6, 10.0),
+            new dev.qb2.companion.movement.Point(-1.0, 0.0, 0.0),
+            0.5f);
+    assertNotNull(bowPose);
+    assertEquals("crown", bowPose.temporaryHat());
+    // Cooldown prevents spamming right after an emote finishes
+    social.cancel();
+    assertFalse(
+        social.tryStartOtherPlayerEmote(otherPlayer, "Steve", true, true, 1050L, 3.0));
+    assertTrue(
+        social.tryStartOtherPlayerEmote(otherPlayer, "Steve", true, true, 1200L, 3.0));
+  }
 }

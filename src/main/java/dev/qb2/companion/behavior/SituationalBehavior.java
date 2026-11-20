@@ -70,6 +70,14 @@ public final class SituationalBehavior {
   public String forcedHat = "auto";
   public String activeHat = "none";
 
+  public final SocialChoreography social = new SocialChoreography();
+  public float socialYaw;
+  public float socialPitch;
+  public float socialRoll;
+  public double socialBob;
+  public Point socialLinkTarget;
+  private final java.util.Map<java.util.UUID, Boolean> otherPlayerCrouching = new java.util.HashMap<>();
+
   private int eyeContactTicks;
   private long lastGreetingTick = -1000;
   private int lastXpLevel = -1;
@@ -95,6 +103,12 @@ public final class SituationalBehavior {
     if (barrelRollTicks > 0) barrelRollTicks--;
     if (petPlayTicks > 0) petPlayTicks--;
     if (workClearanceTicks > 0) workClearanceTicks--;
+    social.tickDown();
+    socialYaw = 0f;
+    socialPitch = 0f;
+    socialRoll = 0f;
+    socialBob = 0.0;
+    socialLinkTarget = null;
 
     var player = mc.player;
     var level = mc.level;
@@ -212,6 +226,7 @@ public final class SituationalBehavior {
       abyssLookTicks = 0;
       oreSparkleTicks = 0;
       petPlayTicks = 0;
+      social.cancel();
       peeking = false;
       wantForwardFov = false;
       activeHat = resolveHat(player, true);
@@ -400,6 +415,7 @@ public final class SituationalBehavior {
         && abyssLookTicks == 0
         && oreSparkleTicks == 0
         && petPlayTicks == 0
+        && !social.isActive()
         && !fishingWatch
         && !aimingSpotter) {
       focusLookOverride = null;
@@ -408,6 +424,7 @@ public final class SituationalBehavior {
     wantForwardFov =
         !perched
             && perchedEntity == null
+            && !social.isActive()
             && workClearanceTicks == 0
             && (peeking
                 || concernTicks > 0
@@ -419,6 +436,122 @@ public final class SituationalBehavior {
                 || wingmanMode);
 
     activeHat = resolveHat(player, perched);
+  }
+
+  public void tickSocialInteractions(
+      Minecraft mc,
+      Point cubePos,
+      long tick,
+      dev.qb2.network.RemoteCompanionTracker peers,
+      dev.qb2.rendering.bubbles.Bubbles bubbles) {
+    if (mc == null || mc.level == null || mc.player == null) return;
+    if (wingmanMode || threatTicks > 0 || concernTicks > 0 || sleepingWithPlayer) {
+      social.cancel();
+      return;
+    }
+    var me = mc.player;
+
+    // 1. Check nearby human players for reactive crouch-greetings or rare spontaneous social emotes
+    net.minecraft.world.entity.player.Player nearestOtherPlayer = null;
+    double nearestPlayerDist = 6.0;
+    boolean crouchToggleDetected = false;
+    for (var other : mc.level.players()) {
+      if (other == me || !other.isAlive() || other.isSpectator() || other.isInvisible()) continue;
+      double d = other.distanceTo(me);
+      if (d <= 6.0) {
+        boolean wasCrouching = otherPlayerCrouching.getOrDefault(other.getUUID(), false);
+        boolean nowCrouching = other.isCrouching();
+        otherPlayerCrouching.put(other.getUUID(), nowCrouching);
+        if (nowCrouching && !wasCrouching) {
+          crouchToggleDetected = true;
+          nearestOtherPlayer = other;
+          nearestPlayerDist = d;
+          break;
+        }
+        if (d < nearestPlayerDist) {
+          nearestPlayerDist = d;
+          nearestOtherPlayer = other;
+        }
+      }
+    }
+    if (otherPlayerCrouching.size() > 32) otherPlayerCrouching.clear();
+
+    // 2. Try starting a rare social emote if none is active
+    if (!social.isActive() && (tick % 20 == 0 || crouchToggleDetected)) {
+      var nearPeer = peers.nearestPeer(cubePos, 5.5);
+      if (nearPeer.isPresent() && !crouchToggleDetected) {
+        var peer = nearPeer.get();
+        double d = peer.pos.distance(cubePos);
+        if (!social.tryStartPeerCubeyEmote(
+            me.getUUID(), peer.ownerId, peer.ownerName, peer.hat, tick, d)) {
+          // Subtle quick greeting nod if within 3.5m and no full choreography triggered
+          if (d <= 3.5 && greetingTicks == 0 && tick - lastGreetingTick > 240) {
+            greetingTicks = 26;
+            lastGreetingTick = tick;
+            focusLookOverride = peer.pos;
+          }
+        }
+      }
+      if (!social.isActive() && nearestOtherPlayer != null) {
+        boolean stationary = nearestOtherPlayer.getDeltaMovement().horizontalDistanceSqr() < 0.004;
+        social.tryStartOtherPlayerEmote(
+            nearestOtherPlayer.getUUID(),
+            nearestOtherPlayer.getName().getString(),
+            crouchToggleDetected,
+            stationary,
+            tick,
+            nearestPlayerDist);
+      }
+    }
+
+    // 3. Drive active social choreography pose & optional temporary hat/bubble
+    if (social.isActive()) {
+      String bubble = social.consumePendingBubble();
+      if (!bubble.isBlank() && bubbles != null) {
+        bubbles.speech(bubble, tick);
+      }
+      if (social.consumeTriggerSound()) {
+        triggerGreetingSound = true;
+      }
+
+      Point anchor = null;
+      Point anchorLook = null;
+      java.util.UUID tid = social.targetId();
+      if (tid != null) {
+        for (var peer : peers.activePeers()) {
+          if (tid.equals(peer.ownerId)) {
+            anchor = peer.pos;
+            break;
+          }
+        }
+        if (anchor == null) {
+          for (var other : mc.level.players()) {
+            if (tid.equals(other.getUUID()) && other.isAlive() && other.distanceTo(me) <= 9.0) {
+              anchor = WorldSensor.point(other.getEyePosition());
+              anchorLook = WorldSensor.point(other.getLookAngle());
+              break;
+            }
+          }
+        }
+      }
+      if (anchor == null) {
+        social.cancel();
+        return;
+      }
+      var pose = social.computePose(me.getUUID(), cubePos, anchor, anchorLook, 0f);
+      if (pose != null) {
+        specialGoalOverride = pose.goalPosition();
+        focusLookOverride = pose.lookTarget();
+        socialYaw = pose.extraYaw();
+        socialPitch = pose.extraPitch();
+        socialRoll = pose.extraRoll();
+        socialBob = pose.extraBob();
+        socialLinkTarget = pose.showResonanceLink() ? anchor : null;
+        if (pose.temporaryHat() != null && "auto".equals(forcedHat)) {
+          activeHat = pose.temporaryHat();
+        }
+      }
+    }
   }
 
   public void markWorking() {

@@ -34,6 +34,10 @@ public final class CompanionSession {
       new dev.qb2.companion.behavior.SituationalBehavior();
   public final dev.qb2.cognition.decisions.ActionQueue actionQueue =
       new dev.qb2.cognition.decisions.ActionQueue();
+  public final dev.qb2.network.RemoteCompanionTracker peers =
+      new dev.qb2.network.RemoteCompanionTracker();
+  public float lastRenderedYaw, lastRenderedPitch, lastRenderedRoll;
+  public String pendingSyncSpeech = "";
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
   public volatile boolean apiBackoff;
@@ -250,7 +254,11 @@ public final class CompanionSession {
       lastTrackedPitch = pitch;
     }
     trail.record(player);
+    peers.prune(player, tick);
     situational.tick(mc, motion.position(), tick, perched);
+    if (!isSleeping() && settings.multiplayerSync) {
+      situational.tickSocialInteractions(mc, motion.position(), tick, peers, bubbles);
+    }
     if (!situational.pendingDurabilityWarning.isBlank()) {
       if (settings.thoughts) bubbles.thought(situational.pendingDurabilityWarning, tick);
       situational.pendingDurabilityWarning = "";
@@ -491,6 +499,7 @@ public final class CompanionSession {
     if (!d.speech().isBlank()) {
       bubbles.speech(d.speech(), tick);
       lastSpeech = tick;
+      pendingSyncSpeech = d.speech();
     }
   }
 

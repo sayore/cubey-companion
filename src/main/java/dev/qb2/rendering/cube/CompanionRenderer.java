@@ -63,32 +63,38 @@ public final class CompanionRenderer {
     double bob =
         napping
             ? -0.014
-            : sit.fishingBiteHop
-                ? Math.abs(Math.sin(time * 12.0)) * 0.16
-                : sit.dancing
-                    ? Math.abs(Math.sin(time * 5.0)) * 0.08
-                    : sit.eatingWithPlayer
-                        ? Math.sin(time * 9.0) * 0.035
-                        : Math.sin(time * (sit.sneaking ? 1.1 : 2.0))
-                            * (sit.sneaking ? 0.012 : 0.025);
+            : sit.socialBob
+                + (sit.fishingBiteHop
+                    ? Math.abs(Math.sin(time * 12.0)) * 0.16
+                    : sit.dancing
+                        ? Math.abs(Math.sin(time * 5.0)) * 0.08
+                        : sit.eatingWithPlayer
+                            ? Math.sin(time * 9.0) * 0.035
+                            : Math.sin(time * (sit.sneaking ? 1.1 : 2.0))
+                                * (sit.sneaking ? 0.012 : 0.025));
 
     // Situational micro-animations (strictly 0 extra motion when powered down / napping!)
     float extraYaw =
         napping
             ? 0f
-            : sit.celebrateTicks > 0
-                ? (45 - sit.celebrateTicks + partial) * 8.0f
-                : sit.itemDropTicks > 30 ? (45 - sit.itemDropTicks) * 4.0f : 0f;
+            : sit.socialYaw
+                + (sit.celebrateTicks > 0
+                    ? (45 - sit.celebrateTicks + partial) * 8.0f
+                    : sit.itemDropTicks > 30 ? (45 - sit.itemDropTicks) * 4.0f : 0f);
     float extraPitch =
         napping
             ? 14.0f
-            : (sit.greetingTicks > 0 ? (float) (Math.sin(time * 14.0) * 16.0) : 0f)
+            : sit.socialPitch
+                + (sit.greetingTicks > 0 ? (float) (Math.sin(time * 14.0) * 16.0) : 0f)
                 + (sit.eatingWithPlayer ? (float) (Math.sin(time * 12.0) * 10.0) : 0f)
                 + (sit.abyssLookTicks > 0 ? -38.0f : 0f);
     float extraRoll =
         napping
             ? 0f
-            : (sit.barrelRollTicks > 0 ? (28 - sit.barrelRollTicks + partial) * (360.0f / 28.0f) : 0f)
+            : sit.socialRoll
+                + (sit.barrelRollTicks > 0
+                    ? (28 - sit.barrelRollTicks + partial) * (360.0f / 28.0f)
+                    : 0f)
                 + sit.wingmanRoll
                 + (sit.peeking || sit.petPlayTicks > 0 ? 13.0f : 0f)
                 + (sit.greetingTicks > 0 ? (float) (Math.sin(time * 10.0) * 10.0) : 0f)
@@ -97,14 +103,21 @@ public final class CompanionRenderer {
                     : 0f)
                 + (sit.dancing ? (float) (Math.sin(time * 4.5) * 12.0) : 0f);
 
+    float finalYaw = frame.yaw() + extraYaw;
+    float finalRoll = (napping ? 0f : frame.roll()) + extraRoll;
+    float finalPitch = (napping ? 0f : frame.pitch()) + extraPitch;
+    session.lastRenderedYaw = finalYaw;
+    session.lastRenderedPitch = finalPitch;
+    session.lastRenderedRoll = finalRoll;
+
     poses.pushPose();
     poses.translate(
         position.x() - camera.x,
         position.y() - camera.y + bob,
         position.z() - camera.z);
-    poses.mulPose(Axis.YP.rotationDegrees(frame.yaw() + extraYaw));
-    poses.mulPose(Axis.ZP.rotationDegrees((napping ? 0f : frame.roll()) + extraRoll));
-    poses.mulPose(Axis.XP.rotationDegrees((napping ? 0f : frame.pitch()) + extraPitch));
+    poses.mulPose(Axis.YP.rotationDegrees(finalYaw));
+    poses.mulPose(Axis.ZP.rotationDegrees(finalRoll));
+    poses.mulPose(Axis.XP.rotationDegrees(finalPitch));
     if (napping) {
       float bx = (float) (1.0 + sleepBreath * 0.016);
       float by = (float) (1.0 - sleepBreath * 0.012);
@@ -216,7 +229,103 @@ public final class CompanionRenderer {
         renderTargetBeam(buffers, camera, position, session.activeTarget().position(), intensity);
       }
     }
+    if (sit.socialLinkTarget != null) {
+      renderSocialResonanceLink(buffers, camera, position, sit.socialLinkTarget, time, intensity);
+    }
     bubbles.render(event, session, settings, position);
+    if (settings.multiplayerSync) {
+      renderPeerCubeys(event, mc, buffers, camera, session, settings, time, partial);
+    }
+  }
+
+  private void renderPeerCubeys(
+      RenderLevelStageEvent event,
+      Minecraft mc,
+      MultiBufferSource.BufferSource buffers,
+      net.minecraft.world.phys.Vec3 camera,
+      CompanionSession session,
+      Settings settings,
+      double time,
+      float partial) {
+    var peers = session.peers.activePeers();
+    if (peers.isEmpty()) return;
+    double sleepBreath = Math.sin(time * 0.72);
+    float intensity = (float) (0.45 + settings.glow * 0.82 * 0.55);
+    for (var peer : peers) {
+      Point pPos = peer.interpolatePos(partial);
+      boolean pNap = "Napping".equals(peer.state);
+      boolean pThink = "Thinking".equals(peer.state);
+      boolean pSpeak = "Speaking".equals(peer.state);
+      double bob = pNap ? -0.014 : Math.sin(time * 2.0 + peer.ownerId.hashCode()) * 0.025;
+
+      PoseStack poses = new PoseStack();
+      poses.pushPose();
+      poses.translate(pPos.x() - camera.x, pPos.y() - camera.y + bob, pPos.z() - camera.z);
+      poses.mulPose(Axis.YP.rotationDegrees(peer.interpolateYaw(partial)));
+      poses.mulPose(Axis.ZP.rotationDegrees(pNap ? 0f : peer.roll));
+      poses.mulPose(Axis.XP.rotationDegrees(pNap ? 14f : peer.pitch));
+      if (pNap) {
+        float bx = (float) (1.0 + sleepBreath * 0.016);
+        float by = (float) (1.0 - sleepBreath * 0.012);
+        poses.scale(bx, by, bx);
+      }
+      var v = buffers.getBuffer(type);
+      box(poses, v, -0.118f, -0.118f, -0.118f, 0.118f, 0.118f, 0.118f, 0.032f, 0.042f, 0.058f, 1f);
+      float er = pThink ? intensity : pSpeak ? intensity * 0.65f : pNap ? intensity * 0.14f : intensity * 0.22f;
+      float eg = pThink ? intensity * 0.54f : pSpeak ? intensity * 0.96f : pNap ? intensity * 0.34f : intensity * 0.68f;
+      float eb = pThink ? intensity * 0.10f : pSpeak ? intensity : pNap ? intensity * 0.72f : intensity;
+      renderEdges(poses, v, 0.121f, 0.009f, er, eg, eb, 1.0f);
+      renderCornerPods(poses, v, time, sleepBreath, pNap, pThink, "Wingman".equals(peer.state), er, eg, eb);
+      renderSideWinglets(poses, v, time, pNap, er, eg, eb);
+      renderHat(poses, v, peer.hat, time, intensity);
+
+      float eyeHalfH = pNap ? 0.0035f : 0.022f;
+      float sScale = pNap ? 0.26f : 1.0f;
+      for (float x : SENSOR_OFFSETS)
+        for (float y : SENSOR_OFFSETS)
+          box(
+              poses,
+              v,
+              x - 0.022f,
+              y - eyeHalfH,
+              0.119f,
+              x + 0.022f,
+              y + eyeHalfH,
+              0.125f,
+              intensity * 0.90f * sScale,
+              intensity * 0.97f * sScale,
+              intensity * sScale,
+              1f);
+      buffers.endBatch(type);
+      poses.popPose();
+
+      // Render peer nametag / shared speech above the remote Cubey
+      String label =
+          (peer.speechUntilTick > session.tick && !peer.speech.isBlank())
+              ? peer.ownerName + "'s QB2: " + peer.speech
+              : peer.ownerName + "'s QB2";
+      double dist = pPos.distance(new Point(camera.x, camera.y, camera.z));
+      if (dist >= 0.5 && dist <= 32.0) {
+        PoseStack tagPose = new PoseStack();
+        tagPose.translate(pPos.x() - camera.x, pPos.y() - camera.y + 0.30, pPos.z() - camera.z);
+        tagPose.mulPose(event.getCamera().rotation());
+        tagPose.scale(0.014f, -0.014f, 0.014f);
+        String clipped = mc.font.plainSubstrByWidth(label, 150);
+        float tx = -mc.font.width(clipped) / 2f;
+        mc.font.drawInBatch(
+            clipped,
+            tx,
+            0,
+            0xE0B8E8FF,
+            false,
+            tagPose.last().pose(),
+            buffers,
+            net.minecraft.client.gui.Font.DisplayMode.NORMAL,
+            0x70102030,
+            LightTexture.FULL_BRIGHT);
+        buffers.endBatch();
+      }
+    }
   }
 
   private void renderTargetBeam(
@@ -254,6 +363,47 @@ public final class CompanionRenderer {
         0.45f);
     buffers.endBatch(RenderType.lines());
     beamPose.popPose();
+  }
+
+  private void renderSocialResonanceLink(
+      MultiBufferSource.BufferSource buffers,
+      net.minecraft.world.phys.Vec3 camera,
+      Point from,
+      Point to,
+      double time,
+      float intensity) {
+    double dist = from.distance(to);
+    if (dist < 0.15 || dist > 7.0) return;
+    PoseStack arcPose = new PoseStack();
+    arcPose.pushPose();
+    var lineBuf = buffers.getBuffer(RenderType.lines());
+    int segments = 8;
+    double prevX = from.x() - camera.x;
+    double prevY = from.y() - camera.y;
+    double prevZ = from.z() - camera.z;
+    for (int i = 1; i <= segments; i++) {
+      double t = i / (double) segments;
+      double wave = Math.sin(t * Math.PI) * (0.14 + 0.04 * Math.sin(time * 8.0));
+      double curX = (from.x() + (to.x() - from.x()) * t) - camera.x;
+      double curY = (from.y() + (to.y() - from.y()) * t + wave) - camera.y;
+      double curZ = (from.z() + (to.z() - from.z()) * t) - camera.z;
+      float r = (float) (0.45 + 0.45 * Math.sin(time * 5.0 + t * 3.0)) * intensity;
+      float g = 0.92f * intensity;
+      float b = 1.0f * intensity;
+      lineBuf
+          .addVertex(arcPose.last(), (float) prevX, (float) prevY, (float) prevZ)
+          .setColor(r, g, b, 0.72f)
+          .setNormal(arcPose.last(), 0, 1, 0);
+      lineBuf
+          .addVertex(arcPose.last(), (float) curX, (float) curY, (float) curZ)
+          .setColor(r, g, b, 0.72f)
+          .setNormal(arcPose.last(), 0, 1, 0);
+      prevX = curX;
+      prevY = curY;
+      prevZ = curZ;
+    }
+    buffers.endBatch(RenderType.lines());
+    arcPose.popPose();
   }
 
   private static final float[] CORNER_SIGNS = {-1f, 1f};

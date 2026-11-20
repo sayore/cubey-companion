@@ -103,6 +103,22 @@ public final class ClientController {
     NeoForge.EVENT_BUS.addListener((RenderGuiEvent.Post e) -> DebugOverlay.render(e, this));
     NeoForge.EVENT_BUS.addListener(
         (RegisterClientCommandsEvent e) -> QB2ClientCommands.register(e, this));
+    dev.qb2.network.CubeyNetwork.clientReceiver =
+        payload -> {
+          if (session == null || player == null) return;
+          if (player.getUUID().equals(payload.ownerId())) return;
+          session.peers.updatePeer(
+              payload.ownerId(),
+              payload.ownerName(),
+              new Point(payload.x(), payload.y(), payload.z()),
+              payload.yaw(),
+              payload.pitch(),
+              payload.roll(),
+              payload.state(),
+              payload.hat(),
+              payload.speech(),
+              session.tick);
+        };
     NeoForge.EVENT_BUS.addListener(
         (RecipesUpdatedEvent e) -> {
           knowledge.close();
@@ -182,6 +198,25 @@ public final class ClientController {
     }
     session.apiBackoff = mind.inCooldown();
     session.tick(mc, s, mind.busy());
+    if (s.multiplayerSync
+        && session.tick % 2 == 0
+        && mc.getConnection() != null
+        && mc.getConnection().hasChannel(dev.qb2.network.CubeyNetwork.C2STelemetryPayload.TYPE)) {
+      Point cp = session.motion.position();
+      String sharedSpeech = s.serverChat ? session.pendingSyncSpeech : "";
+      session.pendingSyncSpeech = "";
+      net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+          new dev.qb2.network.CubeyNetwork.C2STelemetryPayload(
+              cp.x(),
+              cp.y(),
+              cp.z(),
+              session.lastRenderedYaw,
+              session.lastRenderedPitch,
+              session.lastRenderedRoll,
+              session.state,
+              session.situational.activeHat,
+              sharedSpeech));
+    }
     if (session.situational.triggerGreetingSound) {
       audio.play(mc, s, session.motion.position(), dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
     } else if (session.situational.triggerCelebrateSound) {
