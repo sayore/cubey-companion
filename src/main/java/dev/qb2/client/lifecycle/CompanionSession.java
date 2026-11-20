@@ -276,10 +276,12 @@ public final class CompanionSession {
     Vec3 forward = mc.player.getLookAngle().multiply(1, 0, 1).normalize();
     if (forward.lengthSqr() < 0.01) forward = new Vec3(0, 0, 1);
     Vec3 side = forward.cross(new Vec3(0, 1, 0)).normalize();
+    boolean inCombat = situational.combatTicks > 0;
     boolean working = situational.workClearanceTicks > 0;
-    double homeHeight = working ? 2.05 : situational.sneaking ? 1.05 : 1.55;
-    double forwardOffset = working ? 1.15 : 2.05;
-    double sideOffset = working ? 1.75 : 0.95;
+    // During combat, pull high & behind the player's shoulder so Cubey NEVER blocks a sword swing!
+    double homeHeight = inCombat ? 2.45 : working ? 2.05 : situational.sneaking ? 1.05 : 1.55;
+    double forwardOffset = inCombat ? -1.75 : working ? 1.15 : 2.05;
+    double sideOffset = inCombat ? 1.95 : working ? 1.75 : 0.95;
     Point home =
         WorldSensor.point(
             mc.player
@@ -486,7 +488,10 @@ public final class CompanionSession {
               : bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : flightMode;
     } else {
       String effectiveAction =
-          mc.player.isSprinting() || situational.wantForwardFov || bubbles.speaking(tick)
+          inCombat
+                  || mc.player.isSprinting()
+                  || situational.wantForwardFov
+                  || bubbles.speaking(tick)
               ? "return"
               : action;
       var plan =
@@ -508,7 +513,7 @@ public final class CompanionSession {
           cubeDist >= 1.15
               && cubeDist <= settings.exploreRadius
               && mc.player.getLookAngle().normalize().dot(toCubeVec.normalize()) > 0.76;
-      if (playerLookingAtCube && !mc.player.isSprinting() && !situational.wingmanMode) {
+      if (playerLookingAtCube && !mc.player.isSprinting() && !situational.wingmanMode && !inCombat) {
         desired = motion.position();
       }
       // Prevent clipping into the player's body or camera: keep >= 1.25 blocks horizontal clearance.

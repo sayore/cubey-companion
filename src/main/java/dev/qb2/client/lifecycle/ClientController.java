@@ -500,8 +500,12 @@ public final class ClientController {
       event.setSwingHand(false);
       return;
     }
-    // 0b. Left-click directly on Cubey -> Grab him into your gravity hold!
-    if (event.isAttack() && clickedOnCompanion()) {
+    // 0b. Left-click directly on Cubey -> Grab him into your gravity hold (disabled during combat
+    //     or while holding a weapon so sword swings NEVER accidentally grab Cubey!).
+    if (event.isAttack()
+        && session.situational.combatTicks == 0
+        && !dev.qb2.companion.behavior.SituationalBehavior.isWeapon(mc.player.getMainHandItem())
+        && clickedOnCompanion()) {
       event.setCanceled(true);
       event.setSwingHand(false);
       session.wakeUp();

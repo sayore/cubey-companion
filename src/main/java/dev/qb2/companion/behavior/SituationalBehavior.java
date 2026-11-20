@@ -58,6 +58,7 @@ public final class SituationalBehavior {
   public int barrelRollTicks;
   public int petPlayTicks;
   public int workClearanceTicks;
+  public int combatTicks;
 
   public Point focusLookOverride;
   public Point specialGoalOverride;
@@ -103,6 +104,7 @@ public final class SituationalBehavior {
     if (barrelRollTicks > 0) barrelRollTicks--;
     if (petPlayTicks > 0) petPlayTicks--;
     if (workClearanceTicks > 0) workClearanceTicks--;
+    if (combatTicks > 0) combatTicks--;
     social.tickDown();
     socialYaw = 0f;
     socialPitch = 0f;
@@ -112,8 +114,15 @@ public final class SituationalBehavior {
 
     var player = mc.player;
     var level = mc.level;
-    if (player.swinging && workClearanceTicks < 50) {
-      workClearanceTicks = 65;
+    if (player.swinging) {
+      if (isWeapon(player.getMainHandItem())) {
+        combatTicks = Math.max(combatTicks, 120);
+      } else if (workClearanceTicks < 50) {
+        workClearanceTicks = 65;
+      }
+    }
+    if (player.hurtTime > 0) {
+      combatTicks = Math.max(combatTicks, 140);
     }
     specialGoalOverride = null;
 
@@ -308,10 +317,10 @@ public final class SituationalBehavior {
         }
       }
 
-      // 5. Threat reflex on nearby hostile mobs (< 6.5 blocks)
+      // 5. Threat reflex on nearby hostile mobs (< 8.5 blocks) -> triggers safe combat overwatch!
       var mobs =
           level.getEntitiesOfClass(
-              Monster.class, new AABB(player.position(), player.position()).inflate(6.5));
+              Monster.class, new AABB(player.position(), player.position()).inflate(8.5));
       if (!mobs.isEmpty()) {
         Monster nearest = mobs.get(0);
         double bestD = nearest.distanceToSqr(player);
@@ -324,6 +333,7 @@ public final class SituationalBehavior {
         }
         focusLookOverride = WorldSensor.point(nearest.getEyePosition());
         threatTicks = 35;
+        combatTicks = Math.max(combatTicks, 100);
         portalResonance = nearest instanceof EnderMan;
       } else if (threatTicks == 0) {
         // 7. Curiosity toward fresh item drops (< 5.5 blocks)
@@ -425,9 +435,9 @@ public final class SituationalBehavior {
         !perched
             && perchedEntity == null
             && !social.isActive()
+            && combatTicks == 0
             && workClearanceTicks == 0
             && (peeking
-                || concernTicks > 0
                 || celebrateTicks > 0
                 || greetingTicks > 0
                 || darkMode
@@ -436,6 +446,27 @@ public final class SituationalBehavior {
                 || wingmanMode);
 
     activeHat = resolveHat(player, perched);
+  }
+
+  public static boolean isWeapon(net.minecraft.world.item.ItemStack stack) {
+    if (stack == null || stack.isEmpty()) return false;
+    var item = stack.getItem();
+    if (item instanceof net.minecraft.world.item.SwordItem
+        || item instanceof net.minecraft.world.item.AxeItem
+        || item instanceof net.minecraft.world.item.TridentItem
+        || item instanceof net.minecraft.world.item.MaceItem
+        || item instanceof BowItem
+        || item instanceof CrossbowItem) return true;
+    String id = BuiltInRegistries.ITEM.getKey(item).getPath();
+    return id.contains("sword")
+        || id.contains("blade")
+        || id.contains("katana")
+        || id.contains("spear")
+        || id.contains("scythe")
+        || id.contains("claymore")
+        || id.contains("staff")
+        || id.contains("wand")
+        || id.contains("spell");
   }
 
   public void tickSocialInteractions(
