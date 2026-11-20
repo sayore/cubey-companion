@@ -1,0 +1,14 @@
+[Unit]
+Description=QB2 Local NERVE Memory Bridge
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/repos/cubey2
+Environment=QB2_NERVE_REPO=/mnt/lfs/lfs/repos/nerve
+ExecStart=%h/repos/cubey2/scripts/start-bridge.sh
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=default.target

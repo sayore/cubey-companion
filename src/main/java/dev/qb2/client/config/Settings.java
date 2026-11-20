@@ -4,14 +4,22 @@ public final class Settings {
   public String provider = "google";
   public String endpoint = "https://generativelanguage.googleapis.com/v1beta";
   public String model = "gemma-4-31b-it";
+  public String fallbackProvider = "";
+  public String fallbackEndpoint = "";
+  public String fallbackModel = "";
   public String nerveEndpoint = "http://127.0.0.1:17842";
   public int memoryTopK = 3;
   public double perceptionRadius = 10, exploreRadius = 7, fieldOfView = 110;
   public int inferenceSeconds = 18, tokenBudget = 2200, outputTokens = 350, timeoutSeconds = 25;
   public boolean autonomous = true, thoughts = true, speech = true, particles = true;
+  public boolean sounds = true, showTargetBeam = true;
   public boolean debug = false, paused = false, serverChat = false;
   public double glow = 0.85, bubbleOpacity = 0.8;
   public String triggers = "@cube,@qb,qb2";
+
+  public boolean hasFallback() {
+    return fallbackModel != null && !fallbackModel.isBlank();
+  }
 
   public void validate() {
     memoryTopK = Math.clamp(memoryTopK, 1, 20);
@@ -24,12 +32,24 @@ public final class Settings {
     timeoutSeconds = Math.clamp(timeoutSeconds, 2, 60);
     glow = finite(glow, 0, 1);
     bubbleOpacity = finite(bubbleOpacity, 0.1, 1);
+    if (fallbackProvider == null) fallbackProvider = "";
+    if (fallbackEndpoint == null) fallbackEndpoint = "";
+    if (fallbackModel == null) fallbackModel = "";
     if (!provider.equals("google") && !provider.equals("openai"))
       throw new IllegalArgumentException("Provider: google/openai");
     if (!model.matches("[a-zA-Z0-9._:/-]{1,150}"))
       throw new IllegalArgumentException("Invalid model ID");
     dev.qb2.inference.HttpTransport.validateEndpoint(endpoint);
     dev.qb2.inference.HttpTransport.validateEndpoint(nerveEndpoint);
+    if (hasFallback()) {
+      String fp = fallbackProvider.isBlank() ? provider : fallbackProvider;
+      if (!fp.equals("google") && !fp.equals("openai"))
+        throw new IllegalArgumentException("Fallback provider: google/openai");
+      if (!fallbackModel.matches("[a-zA-Z0-9._:/-]{1,150}"))
+        throw new IllegalArgumentException("Invalid fallback model ID");
+      String fe = fallbackEndpoint.isBlank() ? endpoint : fallbackEndpoint;
+      dev.qb2.inference.HttpTransport.validateEndpoint(fe);
+    }
   }
 
   private static double finite(double value, double min, double max) {

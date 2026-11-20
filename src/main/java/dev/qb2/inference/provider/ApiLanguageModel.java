@@ -10,18 +10,62 @@ public final class ApiLanguageModel implements LanguageModel {
   private final HttpTransport http;
   private final Settings settings;
   private final String key;
+  private final String fallbackKey;
   private final Gson json = new Gson();
+  private volatile String lastUsedModel = "";
 
   public ApiLanguageModel(HttpTransport http, Settings settings, String key) {
+    this(http, settings, key, "");
+  }
+
+  public ApiLanguageModel(HttpTransport http, Settings settings, String key, String fallbackKey) {
     this.http = http;
     this.settings = settings;
-    this.key = key;
+    this.key = key == null ? "" : key;
+    this.fallbackKey = fallbackKey == null ? "" : fallbackKey;
+  }
+
+  public String lastUsedModel() {
+    return lastUsedModel;
   }
 
   public String complete(String context) throws Exception {
-    if (key.isBlank()) throw new IllegalStateException("API key missing");
-    String base = settings.endpoint.replaceAll("/+$", "");
-    boolean google = settings.provider.equals("google");
+    try {
+      String reply =
+          completeWith(settings.provider, settings.endpoint, settings.model, key, context);
+      lastUsedModel = settings.model;
+      return reply;
+    } catch (InterruptedException e) {
+      throw e;
+    } catch (Exception primaryError) {
+      if (!settings.hasFallback() || !shouldFallback(primaryError)) throw primaryError;
+      String fp = settings.fallbackProvider.isBlank() ? settings.provider : settings.fallbackProvider;
+      String fe = settings.fallbackEndpoint.isBlank() ? settings.endpoint : settings.fallbackEndpoint;
+      String fk = fallbackKey.isBlank() ? key : fallbackKey;
+      String reply = completeWith(fp, fe, settings.fallbackModel, fk, context);
+      lastUsedModel = "fallback:" + settings.fallbackModel;
+      return reply;
+    }
+  }
+
+  private static boolean shouldFallback(Exception error) {
+    if (error instanceof java.io.IOException) {
+      String msg = error.getMessage();
+      // Do not fail over on auth/bad-request unless it's rate-limit (429) or server error (5xx) or transport error.
+      if (msg != null && msg.matches("API HTTP 4[0-9]{2}") && !msg.equals("API HTTP 429"))
+        return false;
+      return true;
+    }
+    return error instanceof IllegalStateException
+        && "API key missing".equals(error.getMessage());
+  }
+
+  private String completeWith(
+      String provider, String endpoint, String model, String apiKey, String context)
+      throws Exception {
+    if (apiKey.isBlank()) throw new IllegalStateException("API key missing");
+    String base = endpoint.replaceAll("/+$", "");
+    boolean google = provider.equals("google");
     Object body;
     String url;
     if (google) {
@@ -29,7 +73,7 @@ public final class ApiLanguageModel implements LanguageModel {
       var generation = new LinkedHashMap<String, Object>();
       generation.put("maxOutputTokens", settings.outputTokens);
       generation.put("temperature", 0.65);
-      if (settings.model.replaceFirst("^models/", "").startsWith("gemma-4-"))
+      if (model.replaceFirst("^models/", "").startsWith("gemma-4-"))
         generation.put("thinkingConfig", Map.of("thinkingLevel", "minimal"));
       body =
           Map.of(
@@ -39,12 +83,12 @@ public final class ApiLanguageModel implements LanguageModel {
               List.of(Map.of("role", "user", "parts", List.of(Map.of("text", context)))),
               "generationConfig",
               generation);
-      url = base + "/models/" + settings.model.replaceFirst("^models/", "") + ":generateContent";
+      url = base + "/models/" + model.replaceFirst("^models/", "") + ":generateContent";
     } else {
       body =
           Map.of(
               "model",
-              settings.model,
+              model,
               "messages",
               List.of(
                   Map.of("role", "system", "content", ContextBuilder.INSTRUCTION),
@@ -57,7 +101,7 @@ public final class ApiLanguageModel implements LanguageModel {
     }
     var result =
         JsonParser.parseString(
-                http.post(url, key, google, json.toJson(body), settings.timeoutSeconds))
+                http.post(url, apiKey, google, json.toJson(body), settings.timeoutSeconds))
             .getAsJsonObject();
     if (!google)
       return result

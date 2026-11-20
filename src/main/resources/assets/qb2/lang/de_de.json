@@ -1,0 +1,21 @@
+{
+  "key.categories.qb2": "QB2 Begleiter",
+  "key.qb2.settings": "QB2 Einstellungen",
+  "key.qb2.pause": "QB2 Pause / Fortsetzen",
+  "key.qb2.summon": "QB2 Herrufen (Komm her)",
+  "key.qb2.look_here": "QB2 Schau mal hier",
+  "screen.qb2.title": "QB2 Begleiter-Einstellungen",
+  "screen.qb2.tab.api": "API",
+  "screen.qb2.tab.behavior": "Verhalten",
+  "screen.qb2.tab.memory": "Gedächtnis",
+  "screen.qb2.tab.inspector": "Inspektor",
+  "screen.qb2.save": "Speichern",
+  "screen.qb2.test": "Einstellungen testen",
+  "screen.qb2.close": "Schließen",
+  "screen.qb2.search": "Suchen",
+  "screen.qb2.delete": "Entf",
+  "msg.qb2.paused": "[QB2] Pausiert.",
+  "msg.qb2.resumed": "[QB2] Fortgesetzt.",
+  "msg.qb2.summoned": "[QB2] Kehrt zu dir zurück.",
+  "msg.qb2.look_here": "[QB2] Schaut sich %s an."
+}

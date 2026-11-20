@@ -31,6 +31,26 @@ public final class CompanionSession {
   public final FlightPlanner flight = new FlightPlanner();
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
+  public volatile boolean apiBackoff;
+
+  public Observation activeTarget() {
+    return actionTarget != null ? actionTarget : attention.target();
+  }
+
+  public void summon() {
+    action = "return";
+    actionTarget = null;
+    actionUntil = tick + 120;
+  }
+
+  public void focusOn(Observation obs) {
+    if (obs == null) return;
+    attention.select(obs, tick);
+    actionTarget = obs;
+    action = "inspect";
+    actionUntil = tick + 200;
+    attention.holdUntil(actionUntil);
+  }
 
   public void tick(Minecraft mc, Settings settings, boolean thinking) {
     if (mc.player == null || mc.level == null) return;

@@ -42,9 +42,11 @@ public final class WorldSensor {
       String key = id + "@" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
       String stateText = state.toString();
       var be = mc.level.getBlockEntity(pos);
-      if (be != null)
+      if (be != null) {
         stateText +=
             " clientBlockEntity=" + BuiltInRegistries.BLOCK_ENTITY_TYPE.getKey(be.getType());
+        stateText += ModpackInspector.describeClientCapabilities(mc.level, pos, state);
+      }
       String location = pos.toShortString();
       String old = previous.put(location, stateText);
       if (old != null && !old.equals(stateText))

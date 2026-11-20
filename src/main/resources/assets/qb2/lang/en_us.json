@@ -1,1 +1,21 @@
-{"key.qb2.settings": "QB2 settings", "key.categories.qb2": "QB2"}
+{
+  "key.categories.qb2": "QB2 Companion",
+  "key.qb2.settings": "QB2 Settings",
+  "key.qb2.pause": "QB2 Pause / Resume",
+  "key.qb2.summon": "QB2 Summon (Come Here)",
+  "key.qb2.look_here": "QB2 Look Here",
+  "screen.qb2.title": "QB2 Companion Settings",
+  "screen.qb2.tab.api": "API",
+  "screen.qb2.tab.behavior": "Behavior",
+  "screen.qb2.tab.memory": "Memory",
+  "screen.qb2.tab.inspector": "Inspector",
+  "screen.qb2.save": "Save",
+  "screen.qb2.test": "Test saved settings",
+  "screen.qb2.close": "Close",
+  "screen.qb2.search": "Search",
+  "screen.qb2.delete": "Del",
+  "msg.qb2.paused": "[QB2] Paused.",
+  "msg.qb2.resumed": "[QB2] Resumed.",
+  "msg.qb2.summoned": "[QB2] Returning to your side.",
+  "msg.qb2.look_here": "[QB2] Focusing on %s."
+}

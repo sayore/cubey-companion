@@ -62,6 +62,9 @@ public final class CompanionRenderer {
     // Separate eyes/emissive passes are discarded by some Iris/Sodium pack pipelines.
     var light = vertices;
     float intensity = (float) (0.45 + settings.glow * frame.light() * 0.55);
+    float sr = session.apiBackoff ? intensity : intensity * 0.90f;
+    float sg = session.apiBackoff ? intensity * 0.70f : intensity * 0.97f;
+    float sb = session.apiBackoff ? intensity * 0.25f : intensity;
     // Four equal sensor tiles form a technical array, without eyes, mouth or facial animation.
     for (float x : new float[] {-0.064f, 0.064f})
       for (float y : new float[] {-0.064f, 0.064f})
@@ -74,13 +77,55 @@ public final class CompanionRenderer {
             x + 0.022f,
             y + 0.022f,
             0.126f,
-            intensity * 0.90f,
-            intensity * 0.97f,
-            intensity,
+            sr,
+            sg,
+            sb,
             1);
     buffers.endBatch(type);
     poses.popPose();
+    if (settings.showTargetBeam
+        && session.activeTarget() != null
+        && java.util.Set.of("go_to", "inspect", "approach", "orbit").contains(session.action)) {
+      renderTargetBeam(buffers, camera, position, session.activeTarget().position(), intensity);
+    }
     bubbles.render(event, session, settings, position);
+  }
+
+  private void renderTargetBeam(
+      MultiBufferSource.BufferSource buffers,
+      net.minecraft.world.phys.Vec3 camera,
+      Point from,
+      Point to,
+      float intensity) {
+    double dist = from.distance(to);
+    if (dist < 0.25 || dist > 18.0) return;
+    PoseStack beamPose = new PoseStack();
+    beamPose.pushPose();
+    var lineBuf = buffers.getBuffer(RenderType.lines());
+    float fx = (float) (from.x() - camera.x);
+    float fy = (float) (from.y() - camera.y);
+    float fz = (float) (from.z() - camera.z);
+    float tx = (float) (to.x() - camera.x);
+    float ty = (float) (to.y() - camera.y);
+    float tz = (float) (to.z() - camera.z);
+    float r = 0.55f * intensity, g = 0.90f * intensity, b = 1.0f * intensity, a = 0.55f;
+    lineBuf.addVertex(beamPose.last(), fx, fy, fz).setColor(r, g, b, a).setNormal(beamPose.last(), 0, 1, 0);
+    lineBuf.addVertex(beamPose.last(), tx, ty, tz).setColor(r, g, b, a * 0.5f).setNormal(beamPose.last(), 0, 1, 0);
+    LevelRenderer.renderLineBox(
+        beamPose,
+        lineBuf,
+        tx - 0.52,
+        ty - 0.52,
+        tz - 0.52,
+        tx + 0.52,
+        ty + 0.52,
+        tz + 0.52,
+        r,
+        g,
+        b,
+        0.45f);
+    buffers.endBatch(RenderType.lines());
+    beamPose.popPose();
   }
 
   private static void box(

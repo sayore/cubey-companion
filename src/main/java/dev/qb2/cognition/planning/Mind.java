@@ -24,7 +24,22 @@ public final class Mind implements AutoCloseable {
       Map<String, Object> context,
       List<String> keywords,
       Set<String> targets,
-      List<Episode> events) {}
+      List<Episode> events,
+      String fallbackApiKey) {
+    public Job(
+        long epoch,
+        String scope,
+        String reason,
+        Settings settings,
+        String apiKey,
+        String nerveKey,
+        Map<String, Object> context,
+        List<String> keywords,
+        Set<String> targets,
+        List<Episode> events) {
+      this(epoch, scope, reason, settings, apiKey, nerveKey, context, keywords, targets, events, "");
+    }
+  }
 
   public record Outcome(
       long epoch,
@@ -50,12 +65,28 @@ public final class Mind implements AutoCloseable {
   private final Path outboxPath;
   private PersistentOutbox outbox;
   private Future<?> task;
-  public volatile String status = "idle", memoryStatus = "not connected";
+  public volatile String status = "idle", memoryStatus = "not connected", activeModel = "";
   public volatile int pending, knowledgeHits;
   private volatile long epoch;
+  private volatile long cooldownUntilMs;
+  private volatile int consecutiveTransientErrors;
 
   public Mind(Path file) {
     outboxPath = file;
+  }
+
+  public boolean inCooldown() {
+    return System.currentTimeMillis() < cooldownUntilMs;
+  }
+
+  public long cooldownRemainingSeconds() {
+    long rem = cooldownUntilMs - System.currentTimeMillis();
+    return rem <= 0 ? 0 : (rem + 999) / 1000;
+  }
+
+  public void resetBackoff() {
+    consecutiveTransientErrors = 0;
+    cooldownUntilMs = 0;
   }
 
   public boolean busy() {
@@ -130,8 +161,11 @@ public final class Mind implements AutoCloseable {
                 }
                 String context = new ContextBuilder().build(sections, job.settings().tokenBudget);
                 status = "thinking";
-                String response =
-                    new ApiLanguageModel(http, job.settings(), job.apiKey()).complete(context);
+                var model =
+                    new ApiLanguageModel(http, job.settings(), job.apiKey(), job.fallbackApiKey());
+                String response = model.complete(context);
+                activeModel = model.lastUsedModel();
+                resetBackoff();
                 if (Thread.currentThread().isInterrupted() || epoch != job.epoch()) return;
                 Decision parsed = Decision.parse(response, job.targets());
                 Object recent = job.context().get("recentThoughts");
@@ -199,6 +233,16 @@ public final class Mind implements AutoCloseable {
                                             && e.getMessage().matches("API HTTP [0-9]{3}")
                                         ? e.getMessage()
                                         : "Inference or memory operation failed";
+                boolean transientApiError =
+                    safe.equals("API timeout")
+                        || safe.equals("API HTTP 429")
+                        || safe.matches("API HTTP 5[0-9]{2}");
+                if (transientApiError) {
+                  int streak = ++consecutiveTransientErrors;
+                  long delayMs = Math.min(120_000L, 15_000L * (1L << Math.min(streak - 1, 3)));
+                  cooldownUntilMs = System.currentTimeMillis() + delayMs;
+                  status = "backoff(" + (delayMs / 1000) + "s)";
+                }
                 receiver.accept(
                     new Outcome(
                         job.epoch(),

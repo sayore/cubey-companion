@@ -31,7 +31,21 @@ public final class ClientController {
   private final Minecraft mc = Minecraft.getInstance();
   private final KeyMapping settingsKey =
       new KeyMapping("key.qb2.settings", GLFW.GLFW_KEY_K, "key.categories.qb2");
+  private final KeyMapping pauseKey =
+      new KeyMapping("key.qb2.pause", GLFW.GLFW_KEY_UNKNOWN, "key.categories.qb2");
+  private final KeyMapping summonKey =
+      new KeyMapping("key.qb2.summon", GLFW.GLFW_KEY_UNKNOWN, "key.categories.qb2");
+  private final KeyMapping lookHereKey =
+      new KeyMapping("key.qb2.look_here", GLFW.GLFW_KEY_UNKNOWN, "key.categories.qb2");
   private final CompanionRenderer renderer = new CompanionRenderer();
+  private final dev.qb2.rendering.audio.CompanionAudio audio =
+      new dev.qb2.rendering.audio.CompanionAudio();
+  private final dev.qb2.perception.inventory.ContainerMemory containerMemory =
+      new dev.qb2.perception.inventory.ContainerMemory();
+  private final dev.qb2.memory.SessionSummarizer summarizer =
+      new dev.qb2.memory.SessionSummarizer();
+  private final List<Episode> pendingBackgroundEpisodes = new ArrayList<>();
+  private Point lastInteractedBlock;
   private final dev.qb2.diagnostics.ClientSmokeProbe smoke =
       new dev.qb2.diagnostics.ClientSmokeProbe();
   private final Deque<Trigger> triggers = new ArrayDeque<>();
@@ -60,7 +74,13 @@ public final class ClientController {
     } catch (Exception e) {
       error = "Configuration could not be loaded; check qb2.json";
     }
-    modBus.addListener((RegisterKeyMappingsEvent e) -> e.register(settingsKey));
+    modBus.addListener(
+        (RegisterKeyMappingsEvent e) -> {
+          e.register(settingsKey);
+          e.register(pauseKey);
+          e.register(summonKey);
+          e.register(lookHereKey);
+        });
     NeoForge.EVENT_BUS.addListener(this::tick);
     NeoForge.EVENT_BUS.addListener(this::receivedChat);
     NeoForge.EVENT_BUS.addListener(this::outgoingChat);
@@ -88,6 +108,10 @@ public final class ClientController {
     knowledge = new KnowledgeIndex();
     lastInventory = null;
     lastVitals = null;
+    lastInteractedBlock = null;
+    containerMemory.reset();
+    summarizer.reset();
+    pendingBackgroundEpisodes.clear();
     epoch++;
     mind.cancel(epoch);
     triggers.clear();
@@ -101,6 +125,27 @@ public final class ClientController {
   private void tick(ClientTickEvent.Post event) {
     smoke.tick(this);
     while (settingsKey.consumeClick()) mc.setScreen(new SettingsScreen(mc.screen, this));
+    while (pauseKey.consumeClick()) {
+      var cfg = configuration.settings();
+      cfg.paused = !cfg.paused;
+      mc.gui
+          .getChat()
+          .addMessage(Component.translatable(cfg.paused ? "msg.qb2.paused" : "msg.qb2.resumed"));
+    }
+    while (summonKey.consumeClick()) {
+      if (session != null && !configuration.settings().paused) {
+        session.summon();
+        audio.play(
+            mc,
+            configuration.settings(),
+            session.motion.position(),
+            dev.qb2.rendering.audio.CompanionAudio.Cue.SUMMON);
+        mc.gui.getChat().addMessage(Component.translatable("msg.qb2.summoned"));
+      }
+    }
+    while (lookHereKey.consumeClick()) {
+      if (session != null && !configuration.settings().paused) handleLookHere();
+    }
     if (mc.level != level || mc.player != player) {
       reset();
       level = mc.level;
@@ -118,6 +163,7 @@ public final class ClientController {
     }
     lastPlayerPosition = currentPosition;
     var s = configuration.settings();
+    session.apiBackoff = mind.inCooldown();
     session.tick(mc, s, mind.busy());
     knowledge.tick(mc, s.nerveEndpoint, configuration.nerveKey());
     if (session.tick % 20 == 0) {
@@ -127,6 +173,13 @@ public final class ClientController {
           enqueue(new Trigger("player condition", 1, change));
       lastVitals = vitals;
       var inventory = dev.qb2.perception.inventory.InventorySensor.capture(mc);
+      if (!inventory.container().isEmpty()) {
+        Point pos =
+            lastInteractedBlock != null
+                ? lastInteractedBlock
+                : dev.qb2.perception.world.WorldSensor.point(player.position());
+        containerMemory.record(scope, pos, inventory).ifPresent(this::queueBackgroundEpisode);
+      }
       if (lastInventory != null && !lastInventory.equals(inventory)) {
         String summary = "Inventory/menu changed: " + inventory;
         enqueue(
@@ -147,16 +200,21 @@ public final class ClientController {
           -0.005,
           0);
     }
-    if (session.tick % 10 == 0 && !session.sensor.changes().isEmpty())
-      enqueue(new Trigger("world change", 1, String.join("; ", session.sensor.changes())));
+    if (session.tick % 10 == 0 && !session.sensor.changes().isEmpty()) {
+      String worldChanges = String.join("; ", session.sensor.changes());
+      summarizer.record(scope, "world_change", worldChanges).ifPresent(this::queueBackgroundEpisode);
+      enqueue(new Trigger("world change", 1, worldChanges));
+    }
     if (s.autonomous
         && session.tick - session.lastRequest >= s.inferenceSeconds * 20L
         && triggers.isEmpty()) enqueue(new Trigger("curiosity", 3, ""));
     if (!mind.busy() && !triggers.isEmpty() && session.tick - session.lastRequest >= 40) {
       Trigger trigger =
           triggers.stream().min(Comparator.comparingInt(Trigger::priority)).orElseThrow();
-      triggers.remove(trigger);
-      request(trigger);
+      if (!mind.inCooldown() || trigger.priority() == 0) {
+        triggers.remove(trigger);
+        request(trigger);
+      }
     } else if (!mind.busy() && System.nanoTime() - lastFlushNanos > 20_000_000_000L) {
       lastFlushNanos = System.nanoTime();
       activePriority = 9;
@@ -218,6 +276,10 @@ public final class ClientController {
   private void interaction(InputEvent.InteractionKeyMappingTriggered event) {
     if (session == null || !(mc.hitResult instanceof BlockHitResult hit) || event.isCanceled())
       return;
+    if (!event.isAttack()) {
+      var bp = hit.getBlockPos();
+      lastInteractedBlock = new Point(bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5);
+    }
     String id =
         BuiltInRegistries.BLOCK
             .getKey(mc.level.getBlockState(hit.getBlockPos()).getBlock())
@@ -248,6 +310,11 @@ public final class ClientController {
             knowledge.scope,
             s.autonomous);
     keywords = snapshot.keywords();
+    var allEvents = new ArrayList<Episode>(snapshot.events());
+    if (!pendingBackgroundEpisodes.isEmpty()) {
+      allEvents.addAll(pendingBackgroundEpisodes);
+      pendingBackgroundEpisodes.clear();
+    }
     var job =
         new Mind.Job(
             epoch,
@@ -259,8 +326,115 @@ public final class ClientController {
             snapshot.context(),
             keywords,
             snapshot.targets(),
-            snapshot.events());
+            List.copyOf(allEvents),
+            configuration.fallbackApiKey());
     mind.submit(job, outcome -> mc.execute(() -> apply(outcome)));
+  }
+
+  private void queueBackgroundEpisode(Episode episode) {
+    if (pendingBackgroundEpisodes.size() >= 16) pendingBackgroundEpisodes.remove(0);
+    pendingBackgroundEpisodes.add(episode);
+  }
+
+  private void handleLookHere() {
+    if (mc.level == null || mc.player == null || mc.hitResult == null) return;
+    Observation focused = null;
+    if (mc.hitResult instanceof BlockHitResult hit) {
+      var pos = hit.getBlockPos();
+      var state = mc.level.getBlockState(pos);
+      if (!state.isAir()) {
+        String id = BuiltInRegistries.BLOCK.getKey(state.getBlock()).toString();
+        String key = id + "@" + pos.getX() + "," + pos.getY() + "," + pos.getZ();
+        String name = state.getBlock().getName().getString();
+        focused =
+            new Observation(
+                key,
+                id,
+                name,
+                state.toString(),
+                new Point(pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5),
+                10.0,
+                session.tick);
+      }
+    } else if (mc.hitResult instanceof net.minecraft.world.phys.EntityHitResult hit) {
+      var e = hit.getEntity();
+      String id = BuiltInRegistries.ENTITY_TYPE.getKey(e.getType()).toString();
+      String key = id + "@" + e.getId();
+      focused =
+          new Observation(
+              key,
+              id,
+              e.getName().getString(),
+              "player pointed entity",
+              dev.qb2.perception.world.WorldSensor.point(e.getBoundingBox().getCenter()),
+              10.0,
+              session.tick);
+    }
+    if (focused == null) return;
+    var updated = new ArrayList<>(session.observations);
+    Observation target = focused;
+    updated.removeIf(o -> o.key().equals(target.key()));
+    updated.add(0, focused);
+    session.observations = List.copyOf(updated);
+    session.focusOn(focused);
+    audio.play(
+        mc,
+        configuration.settings(),
+        session.motion.position(),
+        dev.qb2.rendering.audio.CompanionAudio.Cue.LOOK_HERE);
+    mc.gui.getChat().addMessage(Component.translatable("msg.qb2.look_here", focused.name()));
+    enqueue(new Trigger("direct address", 0, "Look at " + focused.name() + " (" + focused.key() + ")"));
+  }
+
+  public void searchMemoriesAsync(String query, java.util.function.Consumer<List<Episode>> cb) {
+    String currentScope = scope;
+    var s = configuration.settings();
+    String nerveKey = configuration.nerveKey();
+    if (currentScope == null || currentScope.isBlank()) {
+      cb.accept(List.of());
+      return;
+    }
+    List<String> words = Keywords.extract(query == null ? "" : query);
+    if (words.isEmpty()) words = List.of("session", "container", "player", "block");
+    List<String> finalWords = words;
+    Thread t =
+        new Thread(
+            () -> {
+              try (var transport = new dev.qb2.inference.HttpTransport()) {
+                var mem = new dev.qb2.memory.nerve.NerveMemory(transport, s.nerveEndpoint, nerveKey);
+                var results = mem.search(currentScope, finalWords, 12);
+                mc.execute(() -> cb.accept(results));
+              } catch (Exception e) {
+                mc.execute(() -> cb.accept(List.of()));
+              }
+            },
+            "qb2-memory-inspector");
+    t.setDaemon(true);
+    t.start();
+  }
+
+  public void deleteMemoryAsync(String id, java.util.function.Consumer<Boolean> cb) {
+    String currentScope = scope;
+    var s = configuration.settings();
+    String nerveKey = configuration.nerveKey();
+    if (currentScope == null || currentScope.isBlank() || id == null || id.isBlank()) {
+      cb.accept(false);
+      return;
+    }
+    Thread t =
+        new Thread(
+            () -> {
+              try (var transport = new dev.qb2.inference.HttpTransport()) {
+                var mem = new dev.qb2.memory.nerve.NerveMemory(transport, s.nerveEndpoint, nerveKey);
+                mem.delete(currentScope, id);
+                mc.execute(() -> cb.accept(true));
+              } catch (Exception e) {
+                mc.execute(() -> cb.accept(false));
+              }
+            },
+            "qb2-memory-delete");
+    t.setDaemon(true);
+    t.start();
   }
 
   private void apply(Mind.Outcome outcome) {
@@ -270,6 +444,12 @@ public final class ClientController {
     inferenceMillis = outcome.millis();
     recalled = outcome.memories();
     if (outcome.decision() == null) {
+      if (mind.inCooldown())
+        audio.play(
+            mc,
+            configuration.settings(),
+            session.motion.position(),
+            dev.qb2.rendering.audio.CompanionAudio.Cue.BACKOFF);
       if (activePriority == 0 && !error.isBlank())
         mc.gui.getChat().addMessage(Component.literal("[QB2 status] " + error));
       return;
@@ -282,9 +462,23 @@ public final class ClientController {
     }
     session.apply(d);
     lastAction = d.action();
+    if (!d.thought().isBlank())
+      summarizer.record(scope, "thought", d.thought()).ifPresent(this::queueBackgroundEpisode);
+    if (Set.of("inspect", "go_to").contains(d.action()))
+      audio.play(
+          mc,
+          configuration.settings(),
+          session.motion.position(),
+          dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
     if (!d.speech().isBlank()) {
       String speech = d.speech().replace('\n', ' ');
       session.chat.add(ChatHistory.Source.QB2, speech, session.tick);
+      summarizer.record(scope, "speech", speech).ifPresent(this::queueBackgroundEpisode);
+      audio.play(
+          mc,
+          configuration.settings(),
+          session.motion.position(),
+          dev.qb2.rendering.audio.CompanionAudio.Cue.SPEECH);
       mc.gui.getChat().addMessage(Component.literal("[QB2] " + speech));
       if (configuration.settings().serverChat && player.connection != null)
         player.connection.sendChat("[QB2] " + speech.substring(0, Math.min(240, speech.length())));
@@ -328,12 +522,20 @@ public final class ClientController {
 
   private void overlay(RenderGuiEvent.Post event) {
     if (!configuration.settings().debug || session == null) return;
+    String modelTag =
+        mind.activeModel.isBlank() ? configuration.settings().model : mind.activeModel;
+    String cooldownTag =
+        mind.inCooldown() ? " · backoff " + mind.cooldownRemainingSeconds() + "s" : "";
+    var viewerMods = dev.qb2.perception.world.ModpackInspector.detectedViewerMods();
+    String modpackTag = viewerMods.isEmpty() ? "" : " · mods:" + String.join(",", viewerMods);
     var lines =
         List.of(
             "QB2 · "
                 + session.state
                 + " · "
-                + (configuration.settings().paused ? "PAUSED" : mind.status),
+                + (configuration.settings().paused ? "PAUSED" : mind.status)
+                + cooldownTag,
+            "Model: " + modelTag + modpackTag,
             "Target: "
                 + (session.attention.target() == null ? "none" : session.attention.target().key()),
             "Seen: " + session.observations.size() + " | action: " + lastAction,

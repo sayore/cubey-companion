@@ -38,6 +38,10 @@ public final class NerveMemory {
     if (!batch.isEmpty()) http.post(endpoint + "/knowledge", key, false, json.toJson(batch), 25);
   }
 
+  public void delete(String scope, String id) throws Exception {
+    http.post(endpoint + "/delete", key, false, json.toJson(Map.of("scope", scope, "id", id)), 5);
+  }
+
   public List<Episode> search(String scope, List<String> words, int topK) throws Exception {
     var reply =
         JsonParser.parseString(

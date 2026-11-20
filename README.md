@@ -20,9 +20,12 @@ JAR: `build/libs/qb2-0.1.0.jar`. Der Installer verweigert die Installation bei e
    export QB2_NERVE_REPO=/mnt/lfs/lfs/repos/nerve
    export QB2_NERVE_TOKEN="$(openssl rand -hex 32)"
    bun bridge/server.ts
+   # Oder komfortabel mit persistentem Token (~/.config/qb2/nerve-token):
+   ./scripts/start-bridge.sh
+   # Optional als systemd-User-Service: scripts/qb2-bridge.service
    ```
 
-3. Im Spiel **K** drücken oder Mods → QB2 → Config öffnen. API-Key und denselben NERVE-Token in die maskierten Felder `apiKey` und `nerveKey` eintragen. Der Token wird nicht von der Bridge ausgegeben. Die Maskierung gilt auch für Sprachausgabe.
+3. Im Spiel **K** drücken oder Mods → QB2 → Config öffnen. API-Key und denselben NERVE-Token in die maskierten Felder `apiKey` und `nerveKey` eintragen. Optional können ein **Fallback-Modell** (`fallbackProvider`, `fallbackEndpoint`, `fallbackModel`, `fallbackApiKey`), **Audio-Cues** (`sounds`) und der **Ziel-Lichtstrahl** (`showTargetBeam`) konfiguriert werden. Über **Inspektor** lassen sich Erinnerungen der aktuellen Welt in NERVE durchsuchen und einzeln löschen. Der Token wird nicht von der Bridge ausgegeben. Die Maskierung gilt auch für Sprachausgabe.
 4. `provider=google`, `endpoint=https://generativelanguage.googleapis.com/v1beta`, `model=gemma-4-31b-it` verwenden. Speichern. Mit `@qb Hallo` im Chat ansprechen. Diese Nachricht bleibt lokal.
 5. Optional `debug` aktivieren; das Overlay zeigt API- und NERVE-Zustand. **Test saved settings** prüft die gespeicherte Konfiguration in einer geladenen Welt.
 
@@ -43,7 +46,7 @@ python3 scripts/client-smoke.py --live
 
 ## Bedienung
 
-QB2 bewegt sich auch ohne API-Verbindung, untersucht sichtbare Objekte und kehrt zum Spielerbereich zurück. `go_to` lässt ihn über einer sichtbaren Blockoberfläche schweben; `explore` steuert freie Beobachtungspunkte an. Der Erkundungsradius begrenzt seine Entfernung zur tatsächlichen Spielerposition, auch bei Ausweichbewegungen. Bewegung, Orientierung und sanfte Lichtpulse prägen seine Erscheinung; es gibt keine menschlichen Gesichtsanimationen. Gedanken und Sprache sind getrennt; Sprache erscheint lokal im Chat. `serverChat` versendet nach bewusster Aktivierung QB2-Sprache als normalen Spielerchat und ist standardmäßig aus. Pause stoppt Verhalten, Anzeige und neue Requests; Einstellungen werden beim Speichern übernommen.
+QB2 bewegt sich auch ohne API-Verbindung, untersucht sichtbare Objekte, umfliegt Hindernisse per begrenzter 3D-Voxel-Wegfindung (`VoxelPathfinder`) und kehrt zum Spielerbereich zurück. `go_to` lässt ihn über einer sichtbaren Blockoberfläche schweben; `explore` steuert freie Beobachtungspunkte an. Bei aktiven Zielen markiert optional ein dezenter Lichtstrahl samt Zielrahmen den fokussierten Block (`showTargetBeam`). Neben **K** (Einstellungen) stehen in den Minecraft-Steuerungsoptionen unter **QB2 Begleiter** weitere belegbare Hotkeys bereit (**Pause/Fortsetzen**, **Herrufen**, **Schau mal hier**). Geöffnete Kisten/Container merkt sich QB2 samt Koordinaten und Inhalt in NERVE (`container_memory`), und längere Sitzungen werden automatisch zu `session_summary`-Einträgen verdichtet. Bei temporären API-Fehlern (429/5xx/Timeout) greift ein konfigurierbares Fallback-Modell sowie exponentieller Backoff (sichtbar im Overlay und als bernsteinfarbener Sensor-Puls). Bewegung, Orientierung, dezente Sound-Cues (`sounds`) und sanfte Lichtpulse prägen seine Erscheinung; es gibt keine menschlichen Gesichtsanimationen. Gedanken und Sprache sind getrennt; Sprache erscheint lokal im Chat. `serverChat` versendet nach bewusster Aktivierung QB2-Sprache als normalen Spielerchat und ist standardmäßig aus. Pause stoppt Verhalten, Anzeige und neue Requests; Einstellungen werden beim Speichern übernommen.
 
 Inferenz und episodische Zustellung laufen auf einem Hintergrundworker; ein separater begrenzter Worker importiert Spielwissen. Gedanken und Sprache werden vor der Anzeige lokal journalisiert und anschließend an NERVE geliefert. Bei Ausfall bleibt eine begrenzte persistente Queue erhalten. Bei voller Queue stoppt die Kognition; unbestätigte Erinnerungen werden nicht verdrängt.
 

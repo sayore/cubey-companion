@@ -11,7 +11,7 @@ public final class Configuration {
   private static final Gson JSON = new GsonBuilder().setPrettyPrinting().create();
   private final Path directory;
   private Settings settings = new Settings();
-  private String apiKey = "", nerveKey = "";
+  private String apiKey = "", nerveKey = "", fallbackApiKey = "";
 
   public Configuration(Path directory) {
     this.directory = directory;
@@ -26,8 +26,9 @@ public final class Configuration {
     Path secrets = directory.resolve("qb2-secrets.json");
     if (Files.exists(secrets)) {
       var data = JSON.fromJson(Files.readString(secrets), Secrets.class);
-      apiKey = data.apiKey();
-      nerveKey = data.nerveKey();
+      apiKey = data.apiKey() == null ? "" : data.apiKey();
+      nerveKey = data.nerveKey() == null ? "" : data.nerveKey();
+      fallbackApiKey = data.fallbackApiKey() == null ? "" : data.fallbackApiKey();
     }
   }
 
@@ -43,13 +44,28 @@ public final class Configuration {
     return nerveKey;
   }
 
+  public String fallbackApiKey() {
+    return fallbackApiKey;
+  }
+
   public void save(Settings next, String key, String memoryKey) throws IOException {
+    save(next, key, memoryKey, fallbackApiKey);
+  }
+
+  public void save(Settings next, String key, String memoryKey, String fallbackKey)
+      throws IOException {
     next.validate();
+    String safeKey = key == null ? "" : key;
+    String safeMemoryKey = memoryKey == null ? "" : memoryKey;
+    String safeFallbackKey = fallbackKey == null ? "" : fallbackKey;
     write(directory.resolve("qb2.json"), JSON.toJson(next));
-    write(directory.resolve("qb2-secrets.json"), JSON.toJson(new Secrets(key, memoryKey)));
+    write(
+        directory.resolve("qb2-secrets.json"),
+        JSON.toJson(new Secrets(safeKey, safeMemoryKey, safeFallbackKey)));
     settings = next;
-    apiKey = key;
-    nerveKey = memoryKey;
+    apiKey = safeKey;
+    nerveKey = safeMemoryKey;
+    fallbackApiKey = safeFallbackKey;
   }
 
   public static void write(Path file, String text) throws IOException {
@@ -68,5 +84,5 @@ public final class Configuration {
     }
   }
 
-  private record Secrets(String apiKey, String nerveKey) {}
+  private record Secrets(String apiKey, String nerveKey, String fallbackApiKey) {}
 }

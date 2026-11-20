@@ -1,5 +1,5 @@
 import { ArticleIds } from "./article-ids";
-import { mkdirSync, openSync, closeSync, unlinkSync } from "node:fs";
+import { mkdirSync, openSync, closeSync, unlinkSync, existsSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -35,6 +35,17 @@ const token = process.env.QB2_NERVE_TOKEN ?? "";
 if(token.length<24) {unlinkSync(lock);throw new Error("Set QB2_NERVE_TOKEN to at least 24 random characters");}
 type Episode={id:string,scope:string,kind:string,keywords:string[],text:string,createdAt:string};
 const ids = new ArticleIds(root);
+const deletedFile = join(root, "deleted.json");
+const deleted = new Set<string>(
+    existsSync(deletedFile)
+        ? (JSON.parse(readFileSync(deletedFile, "utf8")) as unknown[]).filter((x): x is string => typeof x === "string")
+        : []
+);
+function saveDeleted() {
+    const tmp = deletedFile + ".tmp";
+    writeFileSync(tmp, JSON.stringify([...deleted]), { mode: 0o600 });
+    renameSync(tmp, deletedFile);
+}
 function validEpisode(e:Episode):boolean {
     return e!==null&&typeof e==="object"&&typeof e.id==="string"&&/^[a-f0-9-]{36}$/.test(e.id)&&typeof e.scope==="string"&&/^[a-f0-9]{64}$/.test(e.scope)
       &&typeof e.text==="string"&&e.text.length<=2000&&typeof e.kind==="string"&&e.kind.length<=40
@@ -69,17 +80,33 @@ const server=Bun.serve({hostname:"127.0.0.1",port:Number(process.env.QB2_NERVE_P
                 }
                 return Response.json({ok:true,count:data.length});
             }
+            if(path==="/delete") {
+                if(typeof data.scope!=="string"||!/^[a-f0-9]{64}$/.test(data.scope)||typeof data.id!=="string"||!/^[a-f0-9-]{36}$/.test(data.id)) return new Response("Invalid delete",{status:400});
+                const articleId=ids.get(data.id);
+                if(articleId!==undefined) {
+                    const text=Engine.getArticleText(articleId);
+                    if(text) {
+                        const existing=JSON.parse(text) as Episode;
+                        if(existing.scope!==data.scope) return new Response("Forbidden",{status:403});
+                    }
+                    deleted.add(data.id);
+                    saveDeleted();
+                }
+                return Response.json({ok:true});
+            }
             if(path==="/search") {
                 if(typeof data.scope!=="string"||!/^[a-f0-9]{64}$/.test(data.scope)||!Array.isArray(data.keywords)||data.keywords.length>1000||!data.keywords.every((w:unknown)=>typeof w==="string"&&w.length<=200)||!Number.isInteger(data.topK)||data.topK<1||data.topK>20) return new Response("Invalid search",{status:400});
                 // Scope prefixes isolate keyword scores between worlds without inventing a native filter.
-                const matches=Engine.getTopMatchesUnique([...new Set(data.keywords.map((word:string)=>data.scope+":"+word))],[],Math.min(60,data.topK*3));
+                const excluded:number[]=[];
+                for(const delId of deleted) { const num=ids.get(delId); if(num!==undefined) excluded.push(num); }
+                const matches=Engine.getTopMatchesUnique([...new Set(data.keywords.map((word:string)=>data.scope+":"+word))],excluded,Math.min(60,data.topK*3));
                 const ranked=matches.map(match=>({episode:JSON.parse(Engine.getArticleText(match.id)) as Episode,score:match.score}));
                 const relevance=(m:typeof ranked[number])=>m.score*(0.9+0.1/(1+Math.max(0,Date.now()-Date.parse(m.episode.createdAt))/604800000));
                 ranked.sort((a,b)=>relevance(b)-relevance(a));
                 const result:Episode[]=[];
                 for(const match of ranked) {
                     const e=match.episode;
-                    if(e.scope===data.scope&&!result.some(x=>x.text===e.text)) result.push(e);
+                    if(e.scope===data.scope&&!deleted.has(e.id)&&!result.some(x=>x.text===e.text)) result.push(e);
                     if(result.length>=data.topK) break;
                 }
                 return Response.json(result);

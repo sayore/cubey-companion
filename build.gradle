@@ -52,7 +52,6 @@ tasks.register('releaseBundle', Zip) {
     from('examples') { into 'examples' }
     from(['bridge/server.ts', 'bridge/article-ids.ts']) { into 'bridge' }
     from('patches') { into 'patches' }
-    from('scripts/install.sh') { into 'scripts' }
-    from('scripts/import-catalog.py') { into 'scripts' }
+    from(['scripts/install.sh', 'scripts/import-catalog.py', 'scripts/start-bridge.sh', 'scripts/qb2-bridge.service']) { into 'scripts' }
 }
 tasks.named('assemble') { dependsOn tasks.named('releaseBundle') }

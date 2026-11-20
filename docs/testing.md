@@ -7,10 +7,10 @@ Stand: 20.11.2026. Plattform: Linux x86_64, Java 21.0.13, Minecraft 1.21.1, NeoF
 | Prüfung | Ergebnis |
 |---|---|
 | `./gradlew clean build` | Erfolgreich; tatsächliche JAR (`build/libs/qb2-0.1.0.jar`) und Liefer-ZIP (`build/distributions/qb2-0.1.0-bundle.zip`) erzeugt |
-| JUnit | 59 Tests, 0 Fehler: 25 `CoreTest`, 11 `NetworkTest`, 10 `FlightAndVisualTest`, 4 `FlightRecoveryTest`, 8 `KnowledgeInventoryTest`, 1 `BackgroundBoundaryTest` |
+| JUnit | 69 Tests, 0 Fehler: 25 `CoreTest`, 11 `NetworkTest`, 10 `FlightAndVisualTest`, 4 `FlightRecoveryTest`, 8 `KnowledgeInventoryTest`, 1 `BackgroundBoundaryTest`, 3 `FallbackAndBackoffTest`, 3 `VoxelPathfinderTest`, 4 `ContainerSummaryAndLifecycleTest` |
 | Python-Katalogimport | 3 Tests erfolgreich: Batch-IDs, Ablehnung privater Episoden vor Netzwerkzugriff, keine authentifizierten Redirects |
 | Dotenv-Parser: `python3 -m unittest discover -s scripts -p 'test_live_configuration.py'` | 4 Tests erfolgreich; keine Shellausführung, keine Werte in Fehlerausgaben |
-| `python3 scripts/nerve-smoke.py` | Reales Rust/Bun-NERVE: Schreiben, Retry-Idempotenz, 1000-Keyword-Suche, Welt-/Katalogisolation, authentifizierte Batches, Ablehnung gemischter ungültiger Batches, Eingabeprüfung und Neustartpersistenz |
+| `python3 scripts/nerve-smoke.py` | Reales Rust/Bun-NERVE: Schreiben, Retry-Idempotenz, 1000-Keyword-Suche, Welt-/Katalogisolation, authentifizierte Batches, Ablehnung gemischter ungültiger Batches, Eingabeprüfung, `/delete`-Tombstones inkl. Cross-Scope-Schutz (403) und Neustartpersistenz |
 | `bun test bridge/article-ids.test.ts` | 7 Tests / 18 Assertions: Journal-Recovery ohne Checkpoint, Retry-Idempotenz, Kompaktion, torn-tail-Recovery, Konflikte, IO-Fail-Closed, Checkpoint-Validierung |
 | `bun test test/wal_recovery_test.ts` im NERVE-Repo | 3 Regressionstests mit 15 Assertions erfolgreich: unaligned Frames, 50.000 größere Texte, 120.000 Artikel über mehreren Replay-Batches; ausschließlich isolierte Datenbanken |
 | `python3 scripts/client-smoke.py` | Echter Minecraft-/NeoForge-Client, Wegwerfwelt, reale Sichtproben, Inventar-/Container- und Recovery-Checks (`QB2_QA_FINISHED failures=0`), lokale direkte Chatansprache, kontrollierter Google-Protokoll-Modellserver mit validiertem Go-to (Abstand 0,02 Block), reale NERVE-Speicherung und anschließendes Recovery (3.813 Katalogfakten) |

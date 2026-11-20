@@ -50,7 +50,12 @@ public final class Motion {
     if (!free.test(position)) reset(FlightClearance.nearest(center, position, radius, free));
     previous = position;
     Point bounded = constrain(center, target, radius);
-    Point delta = bounded.subtract(position);
+    Point steerTarget = bounded;
+    if (!pathFree(position, bounded, free)) {
+      var waypoint = VoxelPathfinder.nextWaypoint(center, position, bounded, radius, free);
+      if (waypoint.isPresent()) steerTarget = waypoint.get();
+    }
+    Point delta = steerTarget.subtract(position);
     Point desired = delta.unit().scale(Math.min(MAX_STEP, delta.length() * 0.06));
     velocity = velocity.lerp(desired, 0.15);
     Point next = constrain(center, position.add(velocity), radius);

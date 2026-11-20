@@ -46,6 +46,13 @@ with tempfile.TemporaryDirectory(prefix='qb2-nerve-test-') as directory:
         assert post('/search',query)==[episode], 'Memory lost after bridge restart'
         assert post('/search',{'scope':'c'*64,'keywords':['minecraft:iron_ingot'],'topK':3})==[knowledge]
         assert len(json.loads(Path(directory,'ids.json').read_text()))==4, 'Retry allocated duplicate article'
-        print('PASS: real NERVE write, idempotent retry, 1000-keyword search, scope isolation, authentication, validation and restart persistence')
+        try: post('/delete', {'scope':'b'*64, 'id':episode['id']}); raise AssertionError('Cross-scope delete accepted')
+        except urllib.error.HTTPError as error: assert error.code==403
+        assert post('/delete', {'scope':'a'*64, 'id':episode['id']})['ok']
+        assert post('/search',query)==[], 'Deleted episode still returned'
+        proc.terminate();proc.wait(timeout=10)
+        proc=start()
+        assert post('/search',query)==[], 'Deleted episode reappeared after bridge restart'
+        print('PASS: real NERVE write, idempotent retry, 1000-keyword search, scope isolation, authentication, validation, delete tombstones and restart persistence')
     finally:
         proc.terminate();proc.wait(timeout=10)
