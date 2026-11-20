@@ -1,15 +1,18 @@
 modLoader="javafml"
 loaderVersion="[4,)"
-license="All Rights Reserved"
+license="MIT"
+clientSideOnly=true
 [[mods]]
 modId="qb2"
 version="0.1.0"
-displayName="QB2"
-description="An autonomous client companion with NERVE episodic memory."
+displayName="QB2 Companion"
+logoFile="assets/qb2/icon.png"
+authors="QB2 Team"
+description="Autonomous client-side companion cube with episodic & spatial memory, tool-calling, and 20+ situational behaviors."
 [[dependencies.qb2]]
 modId="neoforge"
 type="required"
-versionRange="[21.1.253,21.2)"
+versionRange="[21.1.1,21.2)"
 ordering="NONE"
 side="CLIENT"
 [[dependencies.qb2]]

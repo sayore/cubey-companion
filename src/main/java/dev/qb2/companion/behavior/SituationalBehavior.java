@@ -176,15 +176,46 @@ public final class SituationalBehavior {
       focusLookOverride = WorldSensor.point(player.getEyePosition().add(forward.scale(16.0)));
     }
 
-    // 15. Wingman formation (Elytra / Boat / Minecart / Fast sprint)
-    wingmanMode = player.isFallFlying() || player.isPassenger();
+    // 15. Wingman formation (Elytra / Boat / Minecart / Immersive Aircraft / any mounted vehicle)
+    Entity vehicle = player.getVehicle();
+    wingmanMode = player.isFallFlying() || player.isPassenger() || vehicle != null;
     float yawDelta = (player.getYRot() - lastPlayerYaw) % 360f;
     if (yawDelta > 180f) yawDelta -= 360f;
     if (yawDelta < -180f) yawDelta += 360f;
     lastPlayerYaw = player.getYRot();
     wingmanRoll = wingmanMode ? Math.clamp(-yawDelta * 2.8f, -38f, 38f) : 0f;
-    if (wingmanMode && barrelRollTicks == 0 && tick % 140 == 0) {
-      barrelRollTicks = 28; // Rare wingman barrel roll easter egg!
+    if (wingmanMode) {
+      perchedEntity = null;
+      Vec3 vForward =
+          (vehicle != null && vehicle.getDeltaMovement().horizontalDistanceSqr() > 0.005)
+              ? vehicle.getDeltaMovement().normalize()
+              : player.getLookAngle().normalize();
+      Vec3 horizRight = new Vec3(vForward.x, 0, vForward.z).normalize().cross(new Vec3(0, 1, 0)).normalize();
+      if (horizRight.lengthSqr() < 0.01) horizRight = new Vec3(1, 0, 0);
+      Vec3 wingPos =
+          player
+              .getEyePosition()
+              .add(horizRight.scale(1.85))
+              .add(vForward.scale(1.15))
+              .add(0, 0.45, 0);
+      specialGoalOverride = WorldSensor.point(wingPos);
+      focusLookOverride = WorldSensor.point(wingPos.add(vForward.scale(12.0)));
+      if (barrelRollTicks == 0 && tick % 180 == 0) {
+        barrelRollTicks = 28;
+      }
+    }
+
+    // When sleeping/perched, stay strictly powered down: skip eye-contact nod and active distractions.
+    if (perched || sleepingWithPlayer) {
+      greetingTicks = 0;
+      itemDropTicks = 0;
+      abyssLookTicks = 0;
+      oreSparkleTicks = 0;
+      petPlayTicks = 0;
+      peeking = false;
+      wantForwardFov = false;
+      activeHat = resolveHat(player, true);
+      return;
     }
 
     // 1. Eye-contact greeting (~0.8s gaze within ~12 deg)

@@ -44,9 +44,15 @@ public final class CompanionSession {
   public Point guideDestination;
   public String guideLabel = "";
   private long perchedSinceTick;
+  private Point calmAreaAnchor;
+  private long calmAreaSinceTick;
   private Point lastTrackedPlayerPos;
   private float lastTrackedYaw, lastTrackedPitch;
   private long lastActivityTick;
+
+  public boolean isSleeping() {
+    return perched || situational.sleepingWithPlayer;
+  }
 
   public void markPlayerActive() {
     lastActivityTick = tick;
@@ -289,13 +295,26 @@ public final class CompanionSession {
         actionTarget = null;
       }
     }
-    // Auto-perch when resting or quietly hanging around the player's factory.
-    if (!perched && ("rest".equals(action) || (tick > 600 && tick - lastSpeech > 800 && !thinking && tick % 200 == 0 && player.distance(motion.position()) < settings.exploreRadius))) {
+    // Track how long the player has been working locally within a 12-block factory/room radius.
+    if (calmAreaAnchor == null || player.distance(calmAreaAnchor) > 12.0 || situational.wingmanMode) {
+      calmAreaAnchor = player;
+      calmAreaSinceTick = tick;
+    }
+    // Auto-perch when explicitly resting OR after 45s (900 ticks) of quiet local factory work.
+    boolean calmFactoryNap =
+        tick - calmAreaSinceTick >= 900
+            && tick - lastSpeech >= 700
+            && !thinking
+            && !situational.wingmanMode
+            && guideDestination == null
+            && tick % 100 == 0
+            && player.distance(motion.position()) < settings.exploreRadius;
+    if (!perched && ("rest".equals(action) || calmFactoryNap)) {
       var spot = findPerchSpot(mc, motion.position());
       if (spot != null) perchAt(spot);
     }
     if (perched && perchSpot != null) {
-      double wakeDistance = Math.max(18.0, settings.exploreRadius * 2.5);
+      double wakeDistance = Math.max(16.0, settings.exploreRadius * 2.2);
       var underPos =
           net.minecraft.core.BlockPos.containing(
               perchSpot.x(), perchSpot.y() - 0.25, perchSpot.z());
@@ -303,8 +322,10 @@ public final class CompanionSession {
           !mc.level.hasChunkAt(underPos)
               || mc.level.getBlockState(underPos).isAir()
               || mc.level.getBlockState(underPos).getCollisionShape(mc.level, underPos).isEmpty();
-      if (player.distance(perchSpot) > wakeDistance || supportGone) {
+      if (player.distance(perchSpot) > wakeDistance || supportGone || situational.wingmanMode) {
         wakeUp();
+        calmAreaAnchor = player;
+        calmAreaSinceTick = tick;
       }
     }
     java.util.function.Predicate<Point> free =
@@ -355,19 +376,25 @@ public final class CompanionSession {
       } else {
         motion.reset(perchSpot);
       }
-      state = bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : "Napping";
+      // Strictly powered-down state while napping!
+      state = "Napping";
     } else if (situational.specialGoalOverride != null) {
+      double effRadius =
+          situational.wingmanMode ? Math.max(settings.exploreRadius, 12.0) : settings.exploreRadius;
       flightGoal =
-          FlightClearance.nearest(
-              player, situational.specialGoalOverride, settings.exploreRadius, free);
-      flightMode = situational.sleepingWithPlayer ? "Napping" : "Curious";
-      motion.tickSmoothFollow(player, flightGoal, settings.exploreRadius, free, trail);
+          situational.wingmanMode
+              ? situational.specialGoalOverride
+              : FlightClearance.nearest(
+                  player, situational.specialGoalOverride, effRadius, free);
+      flightMode =
+          situational.sleepingWithPlayer
+              ? "Napping"
+              : situational.wingmanMode ? "Wingman" : "Curious";
+      motion.tickSmoothFollow(player, flightGoal, effRadius, free, trail);
       state =
-          bubbles.speaking(tick)
-              ? "Speaking"
-              : thinking
-                  ? "Thinking"
-                  : situational.sleepingWithPlayer ? "Napping" : flightMode;
+          situational.sleepingWithPlayer
+              ? "Napping"
+              : bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : flightMode;
     } else {
       String effectiveAction =
           mc.player.isSprinting() || situational.wantForwardFov || bubbles.speaking(tick)
@@ -384,6 +411,17 @@ public final class CompanionSession {
               tick,
               thinking);
       Point desired = plan.position();
+      // Hold position still when the player is looking directly at Cubey so he never runs away from
+      // your gaze when you turn to read his bubble or inspect him!
+      Vec3 toCubeVec = WorldSensor.vec(motion.position()).subtract(mc.player.getEyePosition());
+      double cubeDist = toCubeVec.length();
+      boolean playerLookingAtCube =
+          cubeDist >= 1.15
+              && cubeDist <= settings.exploreRadius
+              && mc.player.getLookAngle().normalize().dot(toCubeVec.normalize()) > 0.76;
+      if (playerLookingAtCube && !mc.player.isSprinting() && !situational.wingmanMode) {
+        desired = motion.position();
+      }
       // Prevent clipping into the player's body or camera: keep >= 1.25 blocks horizontal clearance.
       Point fromPlayer = desired.subtract(player);
       double horizDist = Math.hypot(fromPlayer.x(), fromPlayer.z());
@@ -419,8 +457,6 @@ public final class CompanionSession {
       attention.update(observations, tick);
       if (!sensor.changes().isEmpty()) {
         for (String c : sensor.changes()) remember(observationsHistory, "t=" + tick + " " + c, 16);
-        // Nearby world change wakes a napping companion!
-        if (perched && tick - perchedSinceTick > 60) wakeUp();
       }
     }
   }

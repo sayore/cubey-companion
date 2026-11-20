@@ -15,14 +15,16 @@ public final class BubbleRenderer {
   public void render(
       RenderLevelStageEvent event, CompanionSession session, Settings settings, Point position) {
     var mc = Minecraft.getInstance();
-    var active = session.bubbles.visibleAll(session.tick, settings.thoughts, settings.speech);
     var camera = event.getCamera().getPosition();
     double distance = position.distance(new Point(camera.x, camera.y, camera.z));
-    if (active.isEmpty() || distance < 0.5) return;
-    double yOffset = 0.32;
-    for (var bubble : active) {
-      yOffset += renderOne(event, mc, session, settings, position, camera, distance, bubble, yOffset);
-    }
+    if (distance < 0.5) return;
+    boolean napping = session.isSleeping();
+    Bubbles.Bubble bubble =
+        napping
+            ? new Bubbles.Bubble("z z z", true, session.tick - 20, session.tick + 20)
+            : session.bubbles.compactAboveCube(session.tick, settings.thoughts, settings.speech);
+    if (bubble == null) return;
+    renderOne(event, mc, session, settings, position, camera, distance, bubble, napping ? 0.24 : 0.28);
   }
 
   private double renderOne(
@@ -38,10 +40,10 @@ public final class BubbleRenderer {
     var lines =
         new ArrayList<>(
             mc.font.split(
-                Component.literal((bubble.thought() ? "◦ " : "QB2: ") + bubble.text()), 160));
-    if (lines.size() > 8) {
-      lines.subList(8, lines.size()).clear();
-      lines.set(7, Component.literal("…").getVisualOrderText());
+                Component.literal((bubble.thought() ? "◦ " : "QB2: ") + bubble.text()), 135));
+    if (lines.size() > 3) {
+      lines.subList(3, lines.size()).clear();
+      lines.set(2, Component.literal("…").getVisualOrderText());
     }
     int width = lines.stream().mapToInt(mc.font::width).max().orElse(1);
     var layout =
@@ -51,11 +53,12 @@ public final class BubbleRenderer {
             event.getProjectionMatrix().m11(),
             width,
             lines.size());
+    float compactScale = layout.scale() * 0.56f;
     PoseStack poses = new PoseStack();
     poses.translate(
         position.x() - camera.x, position.y() - camera.y + yOffset, position.z() - camera.z);
     poses.mulPose(event.getCamera().rotation());
-    poses.scale(layout.scale(), -layout.scale(), layout.scale());
+    poses.scale(compactScale, -compactScale, compactScale);
     float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
     int alpha = (int) (255 * bubble.opacity(session.tick, partial));
     if (alpha <= 4) return 0;

@@ -24,12 +24,18 @@ public final class Bubbles {
     return null;
   }
 
-  /** Returns active bubbles ordered bottom-to-top (speech first, thought stacked above). */
-  public java.util.List<Bubble> visibleAll(long tick, boolean thoughts, boolean spoken) {
-    var list = new java.util.ArrayList<Bubble>(2);
-    if (spoken && speech != null && speech.end() > tick) list.add(speech);
-    if (thoughts && thought != null && thought.end() > tick) list.add(thought);
-    return list;
+  /**
+   * Returns a single compact 3D bubble to show above the cube: prefers inner thought (since speech
+   * already appears in chat), avoiding double-stacked screen clutter.
+   */
+  public Bubble compactAboveCube(long tick, boolean thoughts, boolean spoken) {
+    if (thoughts && thought != null && thought.end() > tick) return thought;
+    if (spoken && speech != null && speech.end() > tick) return speech;
+    return null;
+  }
+
+  public Bubble activeThought(long tick, boolean thoughts) {
+    return (thoughts && thought != null && thought.end() > tick) ? thought : null;
   }
 
   public boolean speaking(long tick) {

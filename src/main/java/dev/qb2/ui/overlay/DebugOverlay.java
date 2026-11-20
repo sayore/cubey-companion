@@ -14,8 +14,31 @@ public final class DebugOverlay {
   public static void render(RenderGuiEvent.Post event, ClientController controller) {
     var settings = controller.configuration.settings();
     var session = controller.session;
-    if (!settings.debug || session == null) return;
+    if (session == null || settings.paused) return;
     var mc = Minecraft.getInstance();
+    // Subtle bottom-center HUD thought subtitle so you never have to spin the camera to read thoughts.
+    if (!session.isSleeping()) {
+      var thought = session.bubbles.activeThought(session.tick, settings.thoughts);
+      if (thought != null && !thought.text().isBlank() && !thought.text().equals("z z z")) {
+        float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
+        int alpha = (int) (220 * thought.opacity(session.tick, partial));
+        if (alpha > 16) {
+          int sw = mc.getWindow().getGuiScaledWidth();
+          int sh = mc.getWindow().getGuiScaledHeight();
+          String text =
+              mc.font.plainSubstrByWidth(
+                  "◦ " + thought.text().replace('\n', ' '), Math.max(120, sw - 60));
+          int tw = mc.font.width(text);
+          int x = (sw - tw) / 2;
+          int y = sh - 58;
+          int bg = ((alpha * 3 / 5) << 24) | 0x0D1A26;
+          int fg = (alpha << 24) | 0xB8E2FF;
+          event.getGuiGraphics().fill(x - 5, y - 2, x + tw + 5, y + 10, bg);
+          event.getGuiGraphics().drawString(mc.font, text, x, y, fg);
+        }
+      }
+    }
+    if (!settings.debug) return;
     var mind = controller.mind;
     String modelTag = mind.activeModel.isBlank() ? settings.model : mind.activeModel;
     String cooldownTag =

@@ -58,10 +58,11 @@ public final class CompanionRenderer {
     PoseStack poses = new PoseStack();
     // NeoForge 1.21.1 already applies the camera model-view on RenderSystem at this stage.
     var camera = event.getCamera().getPosition();
-    boolean napping = "Napping".equals(session.state) || sit.sleepingWithPlayer;
+    boolean napping = session.isSleeping();
+    double sleepBreath = Math.sin(time * 0.72);
     double bob =
         napping
-            ? 0.0
+            ? -0.014
             : sit.fishingBiteHop
                 ? Math.abs(Math.sin(time * 12.0)) * 0.16
                 : sit.dancing
@@ -71,25 +72,30 @@ public final class CompanionRenderer {
                         : Math.sin(time * (sit.sneaking ? 1.1 : 2.0))
                             * (sit.sneaking ? 0.012 : 0.025);
 
-    // Situational micro-animations (nod, head-tilt, celebrate pirouette, rain shiver, barrel roll,
-    // wingman bank, abyss peer-down)
+    // Situational micro-animations (strictly 0 extra motion when powered down / napping!)
     float extraYaw =
-        sit.celebrateTicks > 0
-            ? (45 - sit.celebrateTicks + partial) * 8.0f
-            : sit.itemDropTicks > 30 ? (45 - sit.itemDropTicks) * 4.0f : 0f;
+        napping
+            ? 0f
+            : sit.celebrateTicks > 0
+                ? (45 - sit.celebrateTicks + partial) * 8.0f
+                : sit.itemDropTicks > 30 ? (45 - sit.itemDropTicks) * 4.0f : 0f;
     float extraPitch =
-        (sit.greetingTicks > 0 ? (float) (Math.sin(time * 14.0) * 16.0) : 0f)
-            + (sit.eatingWithPlayer ? (float) (Math.sin(time * 12.0) * 10.0) : 0f)
-            + (sit.abyssLookTicks > 0 ? -38.0f : 0f);
+        napping
+            ? 14.0f
+            : (sit.greetingTicks > 0 ? (float) (Math.sin(time * 14.0) * 16.0) : 0f)
+                + (sit.eatingWithPlayer ? (float) (Math.sin(time * 12.0) * 10.0) : 0f)
+                + (sit.abyssLookTicks > 0 ? -38.0f : 0f);
     float extraRoll =
-        (sit.barrelRollTicks > 0 ? (28 - sit.barrelRollTicks + partial) * (360.0f / 28.0f) : 0f)
-            + sit.wingmanRoll
-            + (sit.peeking || sit.petPlayTicks > 0 ? 13.0f : 0f)
-            + (sit.greetingTicks > 0 ? (float) (Math.sin(time * 10.0) * 10.0) : 0f)
-            + (sit.rainShiverTicks > 0 || sit.lightningStartleTicks > 30
-                ? (float) (Math.sin(time * 36.0) * 12.0)
-                : 0f)
-            + (sit.dancing ? (float) (Math.sin(time * 4.5) * 12.0) : 0f);
+        napping
+            ? 0f
+            : (sit.barrelRollTicks > 0 ? (28 - sit.barrelRollTicks + partial) * (360.0f / 28.0f) : 0f)
+                + sit.wingmanRoll
+                + (sit.peeking || sit.petPlayTicks > 0 ? 13.0f : 0f)
+                + (sit.greetingTicks > 0 ? (float) (Math.sin(time * 10.0) * 10.0) : 0f)
+                + (sit.rainShiverTicks > 0 || sit.lightningStartleTicks > 30
+                    ? (float) (Math.sin(time * 36.0) * 12.0)
+                    : 0f)
+                + (sit.dancing ? (float) (Math.sin(time * 4.5) * 12.0) : 0f);
 
     poses.pushPose();
     poses.translate(
@@ -97,12 +103,18 @@ public final class CompanionRenderer {
         position.y() - camera.y + bob,
         position.z() - camera.z);
     poses.mulPose(Axis.YP.rotationDegrees(frame.yaw() + extraYaw));
-    poses.mulPose(Axis.ZP.rotationDegrees(frame.roll() + extraRoll));
-    poses.mulPose(Axis.XP.rotationDegrees(frame.pitch() + extraPitch));
+    poses.mulPose(Axis.ZP.rotationDegrees((napping ? 0f : frame.roll()) + extraRoll));
+    poses.mulPose(Axis.XP.rotationDegrees((napping ? 0f : frame.pitch()) + extraPitch));
+    if (napping) {
+      float bx = (float) (1.0 + sleepBreath * 0.016);
+      float by = (float) (1.0 - sleepBreath * 0.012);
+      poses.scale(bx, by, bx);
+    }
     var buffers = mc.renderBuffers().bufferSource();
     var vertices = buffers.getBuffer(type);
+    // Main dark chassis
     box(
-        poses, vertices, -0.125f, -0.125f, -0.125f, 0.125f, 0.125f, 0.125f, 0.035f, 0.045f, 0.060f,
+        poses, vertices, -0.118f, -0.118f, -0.118f, 0.118f, 0.118f, 0.118f, 0.032f, 0.042f, 0.058f,
         1);
     // Keep the sensor & edge geometry in the same full-bright material pass as the body.
     // Separate eyes/emissive passes are discarded by some Iris/Sodium pack pipelines.
@@ -168,25 +180,29 @@ public final class CompanionRenderer {
       eg = intensity * 0.68f;
       eb = intensity;
     }
-    renderEdges(poses, light, 0.1265f, 0.011f, er, eg, eb, 1.0f);
+    renderEdges(poses, light, 0.121f, 0.009f, er, eg, eb, 1.0f);
+    renderCornerPods(poses, light, time, sleepBreath, napping, thinking, sit.wingmanMode, er, eg, eb);
+    renderSideWinglets(poses, light, time, napping || sit.sneaking, er, eg, eb);
     renderHat(poses, light, sit.activeHat, time, intensity);
 
-    float sensorScale = napping ? 0.42f : 1.0f;
+    float sensorScale =
+        napping ? (float) (0.20 + (sleepBreath + 1.0) * 0.06) : 1.0f;
     float sr = (errorVisual ? intensity : thinking ? intensity : intensity * 0.90f) * sensorScale;
     float sg = (errorVisual ? intensity * 0.35f : thinking ? intensity * 0.78f : intensity * 0.97f) * sensorScale;
     float sb = (errorVisual ? intensity * 0.22f : thinking ? intensity * 0.40f : intensity) * sensorScale;
-    // Four equal sensor tiles form a technical array, without eyes, mouth or facial animation.
+    // Four equal sensor tiles: close into thin horizontal sleeping slits when powered down!
+    float eyeHalfH = napping ? 0.0035f : 0.022f;
     for (float x : SENSOR_OFFSETS)
       for (float y : SENSOR_OFFSETS)
         box(
             poses,
             light,
             x - 0.022f,
-            y - 0.022f,
-            0.1251f,
+            y - eyeHalfH,
+            0.119f,
             x + 0.022f,
-            y + 0.022f,
-            0.127f,
+            y + eyeHalfH,
+            0.125f,
             sr,
             sg,
             sb,
@@ -238,6 +254,112 @@ public final class CompanionRenderer {
         0.45f);
     buffers.endBatch(RenderType.lines());
     beamPose.popPose();
+  }
+
+  private static final float[] CORNER_SIGNS = {-1f, 1f};
+
+  /**
+   * 8 articulated corner pods that pull inward when sleeping and expand/breathe outward along the
+   * corner diagonals when thinking or active.
+   */
+  private static void renderCornerPods(
+      PoseStack p,
+      VertexConsumer v,
+      double time,
+      double sleepBreath,
+      boolean napping,
+      boolean thinking,
+      boolean wingman,
+      float er,
+      float eg,
+      float eb) {
+    int idx = 0;
+    for (float sx : CORNER_SIGNS) {
+      for (float sy : CORNER_SIGNS) {
+        for (float sz : CORNER_SIGNS) {
+          double phase = idx++ * 0.8;
+          float pullOut;
+          if (napping) {
+            pullOut = (float) (0.002 + (sleepBreath + 1.0) * 0.0025);
+          } else if (thinking) {
+            pullOut = (float) (0.013 + (Math.sin(time * 5.2 + phase) + 1.0) * 0.0065);
+          } else {
+            pullOut = (float) (0.005 + (Math.sin(time * 1.8 + phase) + 1.0) * 0.003);
+          }
+          float sweepZ = (wingman && sz < 0) ? -0.012f : 0f;
+          float cx = sx * (0.104f + pullOut);
+          float cy = sy * (0.104f + pullOut);
+          float cz = sz * (0.104f + pullOut) + sweepZ;
+          float hs = 0.025f;
+          // Dark metallic outer corner shell
+          box(
+              p,
+              v,
+              cx - hs,
+              cy - hs,
+              cz - hs,
+              cx + hs,
+              cy + hs,
+              cz + hs,
+              0.055f + er * 0.18f,
+              0.070f + eg * 0.18f,
+              0.095f + eb * 0.18f,
+              1f);
+          // Glowing inner energy core node visible when corner pods expand outward
+          float cs = 0.013f;
+          float icx = sx * (0.092f + pullOut * 0.45f);
+          float icy = sy * (0.092f + pullOut * 0.45f);
+          float icz = sz * (0.092f + pullOut * 0.45f);
+          box(
+              p,
+              v,
+              icx - cs,
+              icy - cs,
+              icz - cs,
+              icx + cs,
+              icy + cs,
+              icz + cs,
+              er * 0.9f,
+              eg * 0.9f,
+              eb * 0.9f,
+              1f);
+        }
+      }
+    }
+  }
+
+  /** Two articulated side sensor winglets/fins that breathe in and out on the cube's flanks. */
+  private static void renderSideWinglets(
+      PoseStack p, VertexConsumer v, double time, boolean folded, float er, float eg, float eb) {
+    float span = folded ? 0.004f : (float) (0.014 + Math.sin(time * 2.1) * 0.005);
+    float drop = folded ? -0.012f : 0.005f;
+    // Left & right flank winglets
+    box(
+        p,
+        v,
+        -0.122f - span,
+        -0.028f + drop,
+        -0.045f,
+        -0.118f,
+        0.028f + drop,
+        0.045f,
+        er * 0.75f,
+        eg * 0.75f,
+        eb * 0.75f,
+        1f);
+    box(
+        p,
+        v,
+        0.118f,
+        -0.028f + drop,
+        -0.045f,
+        0.122f + span,
+        0.028f + drop,
+        0.045f,
+        er * 0.75f,
+        eg * 0.75f,
+        eb * 0.75f,
+        1f);
   }
 
   private static void renderHat(

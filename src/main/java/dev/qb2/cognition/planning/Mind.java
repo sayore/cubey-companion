@@ -112,6 +112,7 @@ public final class Mind implements AutoCloseable {
           });
   private final HttpTransport http = new HttpTransport();
   private final Path outboxPath;
+  private final LocalFallbackMemory localFallback;
   private PersistentOutbox outbox;
   private Future<?> task;
   public volatile String status = "idle", memoryStatus = "not connected", activeModel = "";
@@ -122,6 +123,10 @@ public final class Mind implements AutoCloseable {
 
   public Mind(Path file) {
     outboxPath = file;
+    Path parent = file.toAbsolutePath().getParent();
+    localFallback =
+        new LocalFallbackMemory(
+            (parent == null ? Path.of(".") : parent).resolve("qb2-local-memory.json"));
   }
 
   public boolean inCooldown() {
@@ -168,6 +173,7 @@ public final class Mind implements AutoCloseable {
                 if (outbox.size() > PersistentOutbox.CAPACITY - 8)
                   throw new IllegalStateException("Memory queue full; cognition paused");
                 for (var event : job.events()) outbox.add(event);
+                localFallback.writeAll(job.events());
                 var knowledgeScope = job.context().get("knowledgeScope");
                 Future<List<Episode>> knowledgeFuture = null;
                 if (knowledgeScope instanceof String catalog && catalog.matches("[a-f0-9]{64}")) {
@@ -186,7 +192,7 @@ public final class Mind implements AutoCloseable {
                     } catch (InterruptedException e) {
                       throw e;
                     } catch (Exception ignored) {
-                      /* Spatial index is optional; never block cognition. */
+                      nearbyHits = localFallback.nearby(job.scope(), playerPos, 18.0, 4);
                     }
                   }
                   memoryStatus = "connected";
@@ -195,6 +201,11 @@ public final class Mind implements AutoCloseable {
                   throw e;
                 } catch (Exception e) {
                   memoryStatus = "unavailable; durable queue";
+                  recalled =
+                      localFallback.search(job.scope(), job.keywords(), job.settings().memoryTopK);
+                  if (playerPos != null) {
+                    nearbyHits = localFallback.nearby(job.scope(), playerPos, 18.0, 4);
+                  }
                 }
                 var sections = new LinkedHashMap<>(job.context());
                 sections.put("memories", recalled);
@@ -290,16 +301,19 @@ public final class Mind implements AutoCloseable {
                         parsed.memory(),
                         List.of(),
                         parsed.plan());
+                var newRecollections = new ArrayList<Episode>(3);
                 if (!decision.thought().isBlank())
-                  outbox.add(recollection(job, "thought", decision.thought()));
+                  newRecollections.add(recollection(job, "thought", decision.thought()));
                 if (!decision.speech().isBlank())
-                  outbox.add(recollection(job, "speech", decision.speech()));
+                  newRecollections.add(recollection(job, "speech", decision.speech()));
                 if (!decision.memory().isBlank())
-                  outbox.add(
+                  newRecollections.add(
                       recollection(
                           job,
                           "reflection",
                           "Model recollection (not verified): " + decision.memory()));
+                for (Episode rec : newRecollections) outbox.add(rec);
+                localFallback.writeAll(newRecollections);
                 pending = outbox.size();
                 receiver.accept(
                     new Outcome(

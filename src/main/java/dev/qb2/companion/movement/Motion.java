@@ -17,6 +17,7 @@ public final class Motion {
           new Point(0, 0, 0.10),
           new Point(0, 0, -0.10));
   private Point previous = Point.ZERO, position = Point.ZERO, velocity = Point.ZERO;
+  private Point lastCenter;
   private Point cachedWaypoint, cachedGoal;
   private int waypointTtl;
   private boolean initialized;
@@ -25,6 +26,7 @@ public final class Motion {
     position = point;
     previous = point;
     velocity = Point.ZERO;
+    lastCenter = null;
     cachedWaypoint = null;
     cachedGoal = null;
     waypointTtl = 0;
@@ -101,11 +103,15 @@ public final class Motion {
 
   /**
    * Smooth trail-following flight: never drags or teleports when the player walks ahead; instead
-   * glides along the player's walked breadcrumb trail until caught up.
+   * glides along the player's walked breadcrumb trail until caught up, and dynamically matches
+   * fast player/vehicle/aircraft speed.
    */
   public void tickSmoothFollow(
       Point center, Point target, double radius, Predicate<Point> free, PlayerTrail trail) {
     if (!initialized) reset(center);
+    double playerSpeed =
+        lastCenter == null ? 0.0 : Math.min(2.5, center.distance(lastCenter));
+    lastCenter = center;
     // Only snap on extreme portal/dimension/command teleports (> 96 blocks).
     if (position.distance(center) > 96 && free.test(center)) {
       if (trail != null) trail.clear();
@@ -118,9 +124,11 @@ public final class Motion {
     }
     previous = position;
     double distFromPlayer = position.distance(center);
-    boolean catchingUp = distFromPlayer > radius;
+    boolean fastMover = playerSpeed > 0.24;
+    boolean catchingUp = distFromPlayer > radius || fastMover;
+    // When in fast vehicle/aircraft flight, steer directly toward the wingman target rather than old ground breadcrumbs.
     Point goal =
-        catchingUp && trail != null
+        (distFromPlayer > radius && playerSpeed <= 0.45 && trail != null)
             ? trail.nextWaypoint(position, constrain(center, target, radius))
             : constrain(center, target, radius);
     double navRadius = catchingUp ? Math.max(radius, distFromPlayer + 3.0) : radius;
@@ -149,11 +157,21 @@ public final class Motion {
       waypointTtl = 0;
     }
 
-    double maxStep = catchingUp ? Math.min(0.26, 0.14 + (distFromPlayer - radius) * 0.015) : MAX_STEP;
     Point delta = steerTarget.subtract(position);
-    Point desired = delta.unit().scale(Math.min(maxStep, delta.length() * (catchingUp ? 0.10 : 0.06)));
-    velocity = velocity.lerp(desired, catchingUp ? 0.18 : 0.15);
-    Point next = catchingUp ? position.add(velocity) : constrain(center, position.add(velocity), radius);
+    double distToGoal = delta.length();
+    // Scale speed dynamically with actual player/aircraft speed + distance lag so Cubey pulls up crisply.
+    double dynamicMaxStep =
+        catchingUp
+            ? Math.min(
+                2.4,
+                Math.max(MAX_STEP, playerSpeed * 1.28 + Math.max(0.0, distToGoal - 1.2) * 0.11))
+            : Math.max(MAX_STEP, playerSpeed * 1.15);
+    double gain = fastMover ? 0.34 : catchingUp ? 0.18 : 0.08;
+    double accel = fastMover ? 0.42 : catchingUp ? 0.24 : 0.16;
+    Point desired = delta.unit().scale(Math.min(dynamicMaxStep, distToGoal * gain));
+    velocity = velocity.lerp(desired, accel);
+    Point next =
+        catchingUp ? position.add(velocity) : constrain(center, position.add(velocity), radius);
     if (!pathFree(position, next, free)) {
       cachedWaypoint = null;
       waypointTtl = 0;

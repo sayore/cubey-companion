@@ -239,14 +239,16 @@ public final class ClientController {
           -0.005,
           0);
     }
-    if (session.tick % 10 == 0 && !session.sensor.changes().isEmpty()) {
-      String worldChanges = String.join("; ", session.sensor.changes());
-      summarizer.record(scope, "world_change", worldChanges).ifPresent(this::queueBackgroundEpisode);
-      enqueue(new Trigger("world change", 1, worldChanges));
+    if (! session.isSleeping()) {
+      if (session.tick % 10 == 0 && !session.sensor.changes().isEmpty()) {
+        String worldChanges = String.join("; ", session.sensor.changes());
+        summarizer.record(scope, "world_change", worldChanges).ifPresent(this::queueBackgroundEpisode);
+        enqueue(new Trigger("world change", 1, worldChanges));
+      }
+      if (s.autonomous
+          && session.tick - session.lastRequest >= s.inferenceSeconds * 20L
+          && triggers.isEmpty()) enqueue(new Trigger("curiosity", 3, ""));
     }
-    if (s.autonomous
-        && session.tick - session.lastRequest >= s.inferenceSeconds * 20L
-        && triggers.isEmpty()) enqueue(new Trigger("curiosity", 3, ""));
     if (!mind.busy() && !triggers.isEmpty()) {
       Trigger trigger =
           triggers.stream().min(Comparator.comparingInt(Trigger::priority)).orElseThrow();
@@ -699,6 +701,8 @@ public final class ClientController {
 
   private void apply(Mind.Outcome outcome) {
     if (session == null || outcome.epoch() != epoch || configuration.settings().paused) return;
+    // Never talk or move from background requests while napping/powered-down!
+    if (session.isSleeping() && activePriority > 0) return;
     error = outcome.error();
     contextTokens = outcome.tokens();
     inferenceMillis = outcome.millis();
