@@ -43,7 +43,7 @@ Voraussetzung zum Bauen: **Java 21**.
 ./scripts/install.sh /pfad/zu/deiner/minecraft-instanz
 ```
 
-Oder kopiere `build/libs/qb2-0.9.5-client.jar` direkt in den `mods/`-Ordner deiner Minecraft-1.21.1-NeoForge-Instanz (z. B. in Prism Launcher oder der Modrinth App). Für optionale Multiplayer-Server gibt es zusätzlich die federleichte, reine Server-Sync-JAR `build/libs/qb2-0.9.5-server.jar` (nur für Dedicated Server – Clients bitte immer `*-client.jar` verwenden!).
+Oder kopiere `build/libs/qb2-0.9.6-client.jar` direkt in den `mods/`-Ordner deiner Minecraft-1.21.1-NeoForge-Instanz (z. B. in Prism Launcher oder der Modrinth App). Für optionale Multiplayer-Server gibt es zusätzlich die federleichte, reine Server-Sync-JAR `build/libs/qb2-0.9.6-server.jar` (nur für Dedicated Server – Clients bitte immer `*-client.jar` verwenden!).
 
 ---
 
@@ -102,6 +102,7 @@ Jeder Server mit einem `/v1/chat/completions`-Endpunkt wird unterstützt:
 - **Linksklick (LMB) auf Cubey gedrückt halten:** Cubey im Gravitationsgriff **aufheben & umhertragen** (einfach loslassen zum sanften Absetzen).
 - **Während LMB gedrückt ist → Rechtsklick (RMB) halten & loslassen:** **Wurf aufladen** (mit Live-HUD-Ladebalken direkt unter dem Fadenkreuz + ansteigendem Kristall-Ton) & **Cubey werfen** – je länger du RMB hältst (bis 2 Sekunden), desto weiter fliegt er mit niedlichem *„Weeeee!“*-Sound im aerodynamischen Delta-Modus und prallt bis zu 3× elastisch an Blöcken ab (`*boing*`)!
 - **Quick-Question-Radialmenü (`G` gedrückt halten oder Cubey sanft auf einen Block setzen):** Öffnet ein Sci-Fi-Radialmenü mit 6 Direktfragen (*Was ist das?*, *Wie baut man das?*, *Ist das nützlich?*, *Aufbau erklären*, *Erzähl nen Witz!*, *Ort merken*). Über `K → Visuals` lassen sich Cubeys **niedliche Custom-Sounds** jederzeit ein-/ausschalten und per **Lautstärke-Slider (`0 %–100 %`)** regeln.
+- **Lokales Push-to-Talk (`V` gedrückt halten – `whisper.cpp` Base auf CPU, 0 MB VRAM):** Einfach **`V`** halten, normal mit Cubey sprechen (Live-Pegelanzeige im HUD) und loslassen – die lokale `qb2-bridge` transkribiert deine Sprache über `whisper.cpp` (`ggml-base-q5_1.bin`, ~190 MB RAM, 0 MB VRAM) direkt an Cubey!
 - **Rechtsklick mit leerer Hand auf Cubey:** Streicheln / Anstupsen (`♥`-Blase, fröhlicher Spin & Klang).
 - **Rechtsklick mit einem Item in der Hand auf Cubey:** *„Was halte ich hier?“* – Cubey untersucht das Item in deiner Hand, schlägt im Rezept-Katalog nach und erklärt dir Funktion und Verwendung.
 - **`Shift + Rechtsklick` auf Cubey:** Hinsetzen (Napping) / Aufwecken direkt umschalten.

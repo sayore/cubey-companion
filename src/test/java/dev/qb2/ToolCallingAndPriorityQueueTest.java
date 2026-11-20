@@ -329,5 +329,18 @@ final class ToolCallingAndPriorityQueueTest {
       if (gt.consumeJustBounced()) bounced = true;
     }
     assertTrue(bounced);
+
+    // 9. VoiceInput builds valid 16kHz mono PCM WAV headers for local Whisper transcription
+    byte[] fakePcm = new byte[1600];
+    byte[] wav = dev.qb2.perception.audio.VoiceInput.buildWav(fakePcm);
+    assertEquals(44 + fakePcm.length, wav.length);
+    assertEquals('R', (char) wav[0]);
+    assertEquals('I', (char) wav[1]);
+    assertEquals('F', (char) wav[2]);
+    assertEquals('F', (char) wav[3]);
+    assertEquals('W', (char) wav[8]);
+    assertEquals('A', (char) wav[9]);
+    assertEquals('V', (char) wav[10]);
+    assertEquals('E', (char) wav[11]);
   }
 }

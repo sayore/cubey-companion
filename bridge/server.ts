@@ -79,13 +79,48 @@ function validEpisode(e:Episode):boolean {
       &&typeof e.createdAt==="string"&&Number.isFinite(Date.parse(e.createdAt))&&Array.isArray(e.keywords)&&e.keywords.length>0&&e.keywords.length<=1000
       &&e.keywords.every(w=>typeof w==="string"&&w.length>0&&w.length<=200);
 }
-const server=Bun.serve({hostname:"127.0.0.1",port:Number(process.env.QB2_NERVE_PORT??17842),maxRequestBodySize:1048576,
+const whisperBin = process.env.QB2_WHISPER_BIN || join(process.env.HOME || "", ".local/bin/whisper-cli");
+const whisperModel = process.env.QB2_WHISPER_MODEL || join(process.env.HOME || "", ".local/share/qb2-whisper/models/ggml-base-q5_1.bin");
+const server=Bun.serve({hostname:"127.0.0.1",port:Number(process.env.QB2_NERVE_PORT??17842),maxRequestBodySize:2097152,
     async fetch(req) {
-        if(req.headers.get("authorization")!=="Bearer "+token) return new Response("Unauthorized",{status:401});
+        const url = new URL(req.url);
+        const path = url.pathname;
         if(req.method!=="POST") return new Response("Method not allowed",{status:405});
+        // Local loopback Push-to-Talk speech-to-text via whisper.cpp (CPU-only, 0 MB VRAM!)
+        if(path==="/transcribe") {
+            const auth = req.headers.get("authorization");
+            if(auth && auth !== "Bearer " + token) return new Response("Unauthorized",{status:401});
+            if(!existsSync(whisperBin) || !existsSync(whisperModel)) {
+                return Response.json({error:"whisper.cpp or ggml-base-q5_1.bin not installed"}, {status:503});
+            }
+            const langRaw = url.searchParams.get("lang") || "de";
+            const lang = /^[a-z]{2,4}$/.test(langRaw) ? langRaw : "auto";
+            const wavBytes = new Uint8Array(await req.arrayBuffer());
+            if(wavBytes.length < 100 || wavBytes.length > 2000000) return new Response("Invalid audio",{status:400});
+            const tmpWav = join(root, `ptt-${Date.now()}-${Math.random().toString(36).slice(2,8)}.wav`);
+            try {
+                writeFileSync(tmpWav, wavBytes, { mode: 0o600 });
+                const proc = Bun.spawn([whisperBin, "-m", whisperModel, "-l", lang, "-t", "4", "-nt", "-np", "-f", tmpWav], {
+                    stdout: "pipe",
+                    stderr: "pipe"
+                });
+                const stdout = await new Response(proc.stdout).text();
+                await proc.exited;
+                const clean = stdout
+                    .replace(/\[BLANK_AUDIO\]/gi, "")
+                    .replace(/\([^)]*\)/g, "")
+                    .replace(/\s+/g, " ")
+                    .trim();
+                return Response.json({text: clean});
+            } catch {
+                return Response.json({error:"Transcription failed"}, {status:500});
+            } finally {
+                try { if(existsSync(tmpWav)) unlinkSync(tmpWav); } catch {}
+            }
+        }
+        if(req.headers.get("authorization")!=="Bearer "+token) return new Response("Unauthorized",{status:401});
         try {
             const data=await req.json();
-            const path=new URL(req.url).pathname;
             if(path==="/memories") {
                 if(!validEpisode(data)) return new Response("Invalid episode",{status:400});
                 const e=data as Episode;

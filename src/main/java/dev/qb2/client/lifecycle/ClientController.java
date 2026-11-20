@@ -37,6 +37,10 @@ public final class ClientController {
       new KeyMapping("key.qb2.summon", GLFW.GLFW_KEY_UNKNOWN, "key.categories.qb2");
   private final KeyMapping lookHereKey =
       new KeyMapping("key.qb2.look_here", GLFW.GLFW_KEY_G, "key.categories.qb2");
+  private final KeyMapping pushToTalkKey =
+      new KeyMapping("key.qb2.push_to_talk", GLFW.GLFW_KEY_V, "key.categories.qb2");
+  public final dev.qb2.perception.audio.VoiceInput voice =
+      new dev.qb2.perception.audio.VoiceInput();
   private int lookKeyHoldTicks;
   private boolean lookRadialOpened;
   private final CompanionRenderer renderer = new CompanionRenderer();
@@ -92,6 +96,7 @@ public final class ClientController {
           e.register(pauseKey);
           e.register(summonKey);
           e.register(lookHereKey);
+          e.register(pushToTalkKey);
         });
     NeoForge.EVENT_BUS.addListener(this::tick);
     NeoForge.EVENT_BUS.addListener(this::receivedChat);
@@ -131,6 +136,7 @@ public final class ClientController {
           mind.close();
           knowledge.close();
           inspectorClient.close();
+          voice.close();
         });
   }
 
@@ -193,6 +199,55 @@ public final class ClientController {
       }
     }
     if (session == null || configuration.settings().paused || mc.isPaused()) return;
+    // Push-to-Talk (default: hold V) -> record local 16kHz mono WAV and transcribe via Whisper Base!
+    if (mc.screen == null) {
+      if (pushToTalkKey.isDown()) {
+        if (!voice.isRecording() && !voice.isTranscribing()) {
+          if (voice.startRecording()) {
+            session.wakeUp();
+            audio.play(
+                mc,
+                configuration.settings(),
+                session.motion.position(),
+                dev.qb2.rendering.audio.CompanionAudio.Cue.GRAB);
+          } else {
+            mc.gui
+                .getChat()
+                .addMessage(Component.literal("[QB2] Kein Mikrofon gefunden (16kHz PCM)."));
+          }
+        }
+      } else if (voice.isRecording()) {
+        var sVoice = configuration.settings();
+        voice.stopAndTranscribe(
+            sVoice.whisperEndpoint,
+            sVoice.whisperLanguage,
+            configuration.nerveKey(),
+            res ->
+                mc.execute(
+                    () -> {
+                      if (session == null || mc.player == null) return;
+                      if (!res.error().isBlank()) {
+                        mc.gui.getChat().addMessage(Component.literal("[QB2] " + res.error()));
+                        return;
+                      }
+                      if (res.text().isBlank()) return;
+                      session.wakeUp();
+                      session.chat.add(ChatHistory.Source.PLAYER, res.text(), session.tick);
+                      lastDirectConvoTick = session.tick;
+                      lastDirectPrompt = res.text();
+                      mc.gui
+                          .getChat()
+                          .addMessage(Component.literal("[Du (Voice) → QB2] " + res.text()));
+                      enqueue(new Trigger("direct address", 0, res.text()));
+                    }));
+      }
+    } else if (voice.isRecording()) {
+      voice.stopAndTranscribe(
+          configuration.settings().whisperEndpoint,
+          configuration.settings().whisperLanguage,
+          configuration.nerveKey(),
+          r -> {});
+    }
     Point currentPosition = dev.qb2.perception.world.WorldSensor.point(player.position());
     if (lastPlayerPosition != null && lastPlayerPosition.distance(currentPosition) > 96) {
       reset();

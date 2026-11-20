@@ -10,6 +10,8 @@ public final class Settings {
   public String fallbackEndpoint = "";
   public String fallbackModel = "";
   public String nerveEndpoint = "http://127.0.0.1:17842";
+  public String whisperEndpoint = "http://127.0.0.1:17842/transcribe";
+  public String whisperLanguage = "de";
   public int memoryTopK = 3;
   public double perceptionRadius = 10, exploreRadius = 7, fieldOfView = 110;
   public int inferenceSeconds = 20, speechSeconds = 45, tokenBudget = 950, outputTokens = 600, timeoutSeconds = 25;
@@ -49,6 +51,8 @@ public final class Settings {
     c.fallbackEndpoint = fallbackEndpoint;
     c.fallbackModel = fallbackModel;
     c.nerveEndpoint = nerveEndpoint;
+    c.whisperEndpoint = whisperEndpoint;
+    c.whisperLanguage = whisperLanguage;
     c.memoryTopK = memoryTopK;
     c.perceptionRadius = perceptionRadius;
     c.exploreRadius = exploreRadius;
@@ -98,6 +102,11 @@ public final class Settings {
     if (fallbackModel == null) fallbackModel = "";
     if (style == null || style.isBlank()) style = "calm";
     if (style.length() > 120) style = style.substring(0, 120);
+    if (whisperEndpoint == null || whisperEndpoint.isBlank())
+      whisperEndpoint = "http://127.0.0.1:17842/transcribe";
+    if (whisperLanguage == null || whisperLanguage.isBlank()) whisperLanguage = "de";
+    if (!whisperLanguage.matches("[a-z]{2,4}")) whisperLanguage = "auto";
+    dev.qb2.inference.HttpTransport.validateEndpoint(whisperEndpoint);
     if (!provider.equals("google") && !provider.equals("openai"))
       throw new IllegalArgumentException("Provider: google/openai");
     if (!model.matches("[a-zA-Z0-9._:/-]{1,150}"))

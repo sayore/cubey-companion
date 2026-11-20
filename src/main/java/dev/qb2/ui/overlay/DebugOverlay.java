@@ -16,6 +16,35 @@ public final class DebugOverlay {
     var session = controller.session;
     if (session == null || settings.paused) return;
     var mc = Minecraft.getInstance();
+    // Live Push-to-Talk Whisper Microphone HUD Pill (top-center / above hotbar)
+    if (controller.voice.isRecording() || controller.voice.isTranscribing()) {
+      int sw = mc.getWindow().getGuiScaledWidth();
+      int sh = mc.getWindow().getGuiScaledHeight();
+      int cx = sw / 2;
+      int cy = sh - 78;
+      if (controller.voice.isRecording()) {
+        float lvl = controller.voice.liveLevel();
+        int bars = Math.round(lvl * 6);
+        StringBuilder meter = new StringBuilder();
+        for (int i = 0; i < 6; i++) meter.append(i < bars ? '█' : '░');
+        String label =
+            String.format(
+                java.util.Locale.ROOT,
+                "🎙 Cubey hört zu... [%s] %.1fs",
+                meter,
+                controller.voice.recordingSeconds());
+        int tw = mc.font.width(label);
+        event.getGuiGraphics().fill(cx - tw / 2 - 6, cy - 3, cx + tw / 2 + 6, cy + 11, 0xCC1E1028);
+        event.getGuiGraphics().renderOutline(cx - tw / 2 - 6, cy - 3, tw + 12, 14, 0xEEFF5599);
+        event.getGuiGraphics().drawString(mc.font, label, cx - tw / 2, cy, 0xFFFFD8EC);
+      } else {
+        String label = "🎙 Whisper transkribiert...";
+        int tw = mc.font.width(label);
+        event.getGuiGraphics().fill(cx - tw / 2 - 6, cy - 3, cx + tw / 2 + 6, cy + 11, 0xCC0D1E2E);
+        event.getGuiGraphics().renderOutline(cx - tw / 2 - 6, cy - 3, tw + 12, 14, 0xEE44DDFF);
+        event.getGuiGraphics().drawString(mc.font, label, cx - tw / 2, cy, 0xFFB8ECFF);
+      }
+    }
     // Live Grab & Throw Charge Bar HUD right below the crosshair!
     if (session.grabThrow.isGrabbed()) {
       int sw = mc.getWindow().getGuiScaledWidth();

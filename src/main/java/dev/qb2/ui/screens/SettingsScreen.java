@@ -25,7 +25,9 @@ public final class SettingsScreen extends Screen {
           "fallbackProvider",
           "fallbackEndpoint",
           "fallbackModel",
-          "nerveEndpoint");
+          "nerveEndpoint",
+          "whisperEndpoint",
+          "whisperLanguage");
   private static final List<String> TAB_BEHAVIOR =
       List.of(
           "autonomous",
@@ -86,6 +88,8 @@ public final class SettingsScreen extends Screen {
           Map.entry("fallbackEndpoint", "Fallback Endpoint"),
           Map.entry("fallbackModel", "Fallback Model (e.g. gemma3:1b)"),
           Map.entry("nerveEndpoint", "NERVE Bridge URL"),
+          Map.entry("whisperEndpoint", "Whisper PTT Endpoint"),
+          Map.entry("whisperLanguage", "Whisper Language (de/en/auto)"),
           Map.entry("autonomous", "Autonomous Curiosity"),
           Map.entry("smoothFollow", "Smooth Trail Follow"),
           Map.entry("multiplayerSync", "Multiplayer Cubey Sync"),
