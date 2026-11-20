@@ -30,6 +30,7 @@ public final class CompanionSession {
   private Observation actionTarget;
   public final FlightPlanner flight = new FlightPlanner();
   public final PlayerTrail trail = new PlayerTrail();
+  public final GrabThrowPhysics grabThrow = new GrabThrowPhysics();
   public final dev.qb2.companion.behavior.SituationalBehavior situational =
       new dev.qb2.companion.behavior.SituationalBehavior();
   public final dev.qb2.cognition.decisions.ActionQueue actionQueue =
@@ -344,7 +345,52 @@ public final class CompanionSession {
                   new AABB(v.x - .17, v.y - .17, v.z - .17, v.x + .17, v.y + .17, v.z + .17));
         };
     var target = actionTarget != null ? actionTarget : attention.target();
-    if (guideDestination != null) {
+    if (grabThrow.isGrabbed()) {
+      boolean lmbDown = mc.screen == null && mc.options.keyAttack.isDown();
+      boolean rmbDown = mc.screen == null && mc.options.keyUse.isDown();
+      Point eyePos = WorldSensor.point(mc.player.getEyePosition());
+      Point lookUnit = WorldSensor.point(mc.player.getLookAngle().normalize());
+      Point holdTarget = grabThrow.tickGrab(eyePos, lookUnit, lmbDown, rmbDown);
+      if (holdTarget != null) {
+        Point safeHold =
+            free.test(holdTarget) ? holdTarget : FlightClearance.nearest(eyePos, holdTarget, 2.5, free);
+        Point smoothed = motion.position().lerp(safeHold, 0.55);
+        motion.stepDirect(smoothed);
+        flightGoal = safeHold;
+        flightMode = grabThrow.isCharging() ? "Wingman" : "Curious";
+        state = grabThrow.isCharging() ? "Wingman" : "Curious";
+        if (grabThrow.isCharging()) {
+          bubbles.thought(GrabThrowPhysics.formatChargeBar(grabThrow.chargeRatio()), tick);
+        }
+      } else if (grabThrow.isThrown()) {
+        // Just launched!
+        situational.barrelRollTicks = 28;
+        situational.triggerCelebrateSound = true;
+        String yeetText = grabThrow.lastLaunchCharge() >= 0.78f ? "YEET!! ✦" : "Weeeee! ✦";
+        bubbles.speech(yeetText, tick);
+        pendingSyncSpeech = yeetText;
+        flightMode = "Wingman";
+        state = "Wingman";
+      } else {
+        // Gently placed down without throwing
+        flightMode = "Idle";
+        state = "Idle";
+      }
+    } else if (grabThrow.isThrown()) {
+      Point next = grabThrow.tickThrown(motion.position(), free);
+      motion.stepDirect(next);
+      flightGoal = next;
+      flightMode = "Wingman";
+      state = "Wingman";
+      if (grabThrow.consumeJustBounced()) {
+        situational.triggerGreetingSound = true;
+        bubbles.thought("*boing*", tick);
+      }
+      if (!grabThrow.isThrown()) {
+        action = "return";
+        actionUntil = tick + 100;
+      }
+    } else if (guideDestination != null) {
       double distToDest = player.distance(guideDestination);
       if (distToDest <= 3.0) {
         Point aboveDest = guideDestination.add(new Point(0, 0.95, 0));

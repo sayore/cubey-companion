@@ -304,5 +304,30 @@ final class ToolCallingAndPriorityQueueTest {
     assertEquals(dev.qb2.rendering.animation.MorphState.EyeMood.SLEEP_SLITS, sleepSnap.eyeMood());
     assertTrue(sleepSnap.mochiSleep() > 0.4f);
     assertTrue(sleepSnap.squashY() < 1.0f);
+
+    // 8. GrabThrowPhysics: LMB grab, RMB charge curve, ballistic throw & elastic floor bounce
+    var gt = new dev.qb2.companion.movement.GrabThrowPhysics();
+    gt.startGrab();
+    assertTrue(gt.isGrabbed());
+    var eye = new dev.qb2.companion.movement.Point(0, 65, 0);
+    var look = new dev.qb2.companion.movement.Point(0, 0, 1);
+    // Charge for 20 ticks (50% power) while holding LMB + RMB
+    for (int i = 0; i < 20; i++) {
+      assertNotNull(gt.tickGrab(eye, look, true, true));
+    }
+    assertEquals(0.5f, gt.chargeRatio(), 0.01f);
+    assertEquals("⚡ [███░░░]", dev.qb2.companion.movement.GrabThrowPhysics.formatChargeBar(0.5f));
+    // Release RMB while holding LMB -> launches!
+    assertNull(gt.tickGrab(eye, look, true, false));
+    assertTrue(gt.isThrown());
+    assertTrue(gt.velocity().z() > 1.0);
+    // Simulate flight hitting a floor at y <= 64.0 -> bounces upward!
+    var pos = new dev.qb2.companion.movement.Point(0, 64.2, 2);
+    boolean bounced = false;
+    for (int i = 0; i < 30 && gt.isThrown(); i++) {
+      pos = gt.tickThrown(pos, p -> p.y() > 64.0);
+      if (gt.consumeJustBounced()) bounced = true;
+    }
+    assertTrue(bounced);
   }
 }

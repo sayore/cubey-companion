@@ -105,17 +105,31 @@ public final class CompanionRenderer {
                     : 0f)
                 + (sit.dancing ? (float) (Math.sin(time * 4.5) * 12.0) : 0f);
 
+    boolean grabbed = session.grabThrow.isGrabbed();
+    boolean chargingThrow = session.grabThrow.isCharging();
+    boolean thrown = session.grabThrow.isThrown();
+    float charge = session.grabThrow.chargeRatio();
+
     float finalYaw = frame.yaw() + extraYaw;
     float finalRoll = (napping ? 0f : frame.roll()) + extraRoll;
     float finalPitch = (napping ? 0f : frame.pitch()) + extraPitch;
+    if (thrown) {
+      finalPitch += (float) (time * 680.0);
+    } else if (chargingThrow) {
+      finalRoll += (float) (Math.sin(time * 52.0) * (6.0 + charge * 18.0));
+      finalPitch += (float) (Math.cos(time * 48.0) * (4.0 + charge * 12.0));
+    }
     session.lastRenderedYaw = finalYaw;
     session.lastRenderedPitch = finalPitch;
     session.lastRenderedRoll = finalRoll;
 
+    double jitterX = chargingThrow ? Math.sin(time * 62.0) * 0.022 * charge : 0.0;
+    double jitterY = chargingThrow ? Math.cos(time * 57.0) * 0.022 * charge : 0.0;
+
     poses.pushPose();
     poses.translate(
-        position.x() - camera.x,
-        position.y() - camera.y + bob,
+        position.x() - camera.x + jitterX,
+        position.y() - camera.y + bob + jitterY,
         position.z() - camera.z);
     poses.mulPose(Axis.YP.rotationDegrees(finalYaw));
     poses.mulPose(Axis.ZP.rotationDegrees(finalRoll));
@@ -124,6 +138,13 @@ public final class CompanionRenderer {
       float bx = (float) (1.0 + sleepBreath * 0.016);
       float by = (float) (1.0 - sleepBreath * 0.012);
       poses.scale(bx, by, bx);
+    } else if (chargingThrow) {
+      // Coil like a spring along Z as throw power builds up!
+      float coilZ = 1.0f - charge * 0.24f;
+      float bulgeXY = 1.0f + charge * 0.14f;
+      poses.scale(bulgeXY, bulgeXY, coilZ);
+    } else if (grabbed) {
+      poses.scale(0.95f, 1.06f, 0.95f);
     }
     var buffers = mc.renderBuffers().bufferSource();
     var vertices = buffers.getBuffer(type);
@@ -146,9 +167,15 @@ public final class CompanionRenderer {
             || sit.greetingTicks > 0
             || sit.dancing
             || sit.petPlayTicks > 0
-            || sit.social.isActive();
+            || sit.social.isActive()
+            || (grabbed && !chargingThrow);
     boolean threatOrAiming =
-        sit.threatTicks > 0 || sit.concernTicks > 0 || sit.aimingSpotter || sit.lightningStartleTicks > 0;
+        sit.threatTicks > 0
+            || sit.concernTicks > 0
+            || sit.aimingSpotter
+            || sit.lightningStartleTicks > 0
+            || chargingThrow
+            || thrown;
     boolean inspectingTarget =
         session.guideDestination != null
             || (session.activeTarget() != null && BEAM_ACTIONS.contains(session.action));
@@ -163,7 +190,7 @@ public final class CompanionRenderer {
             thinking,
             speaking,
             curious,
-            sit.wingmanMode,
+            sit.wingmanMode || thrown,
             happySocial,
             threatOrAiming,
             inspectingTarget);
@@ -485,7 +512,7 @@ public final class CompanionRenderer {
     float sleep = ms.mochiSleep();
 
     // 1. Retractable inner dark chassis + Dual counter-rotating Gyro-Plasma Core
-    float coreHalf = 0.098f - open * 0.026f - blob * 0.022f + sleep * 0.014f;
+    float coreHalf = 0.088f - open * 0.032f - blob * 0.020f + sleep * 0.018f;
     box(
         poses,
         v,
@@ -495,25 +522,38 @@ public final class CompanionRenderer {
         coreHalf,
         coreHalf,
         coreHalf,
-        0.028f + er * 0.08f,
-        0.038f + eg * 0.08f,
-        0.054f + eb * 0.08f,
+        0.026f + er * 0.08f,
+        0.036f + eg * 0.08f,
+        0.052f + eb * 0.08f,
         1f);
 
     if (!napping && (open > 0.04f || blob > 0.12f)) {
       renderInnerGyroCore(poses, v, time, open, blob, er, eg, eb);
     }
 
-    // 2. Six magnetically floating split-shell plates + organic liquid-harmonic blob sub-domes
-    float frontPlateZ =
-        renderMagneticSplitShell(poses, v, time, open, blob, aero, sleep, ms.springLagZ(), ms.springLagY(), er, eg, eb);
+    // 2. Six magnetically floating split-shell plates + 3-tier voxel-sphere blob domes
+    float frontOutermostZ =
+        renderMagneticSplitShell(
+            poses, v, time, open, blob, aero, sleep, ms.springLagZ(), ms.springLagY(), er, eg, eb);
 
-    // 3. Glowing energy frame / edge conduits (breathe outward with tesseract/blob expansion)
-    float edgeSpan = 0.120f + open * 0.022f - blob * 0.010f - sleep * 0.005f;
-    float edgeThick = 0.0085f * (1.0f - blob * 0.35f);
-    renderEdges(poses, v, edgeSpan, edgeThick, er, eg, eb, 1.0f);
+    // 3. Classic cube energy frame only when in compact cube/sleep state; retracts when morphing into
+    //    an open Tesseract or rounded Fluid-Blob so Cubey breaks free of the rigid cube cage!
+    float cageVisibility = Math.clamp(1.0f - open * 1.6f - blob * 1.5f, 0.0f, 1.0f);
+    if (cageVisibility > 0.05f) {
+      float edgeSpan = 0.116f - sleep * 0.004f;
+      float edgeThick = 0.0075f * cageVisibility;
+      renderEdges(
+          poses,
+          v,
+          edgeSpan,
+          edgeThick,
+          er * cageVisibility,
+          eg * cageVisibility,
+          eb * cageVisibility,
+          1.0f);
+    }
 
-    // 4. Eight detachable orbiting corner shards
+    // 4. Eight morphing corner shards (retract to round corners in Blob mode; detach & orbit in Tesseract)
     renderCornerPods(poses, v, time, sleepBreath, napping, thinking, ms, er, eg, eb);
 
     // 5. Articulated flank winglets + 3-node aerodynamic ion trail
@@ -522,15 +562,15 @@ public final class CompanionRenderer {
       renderAeroIonTrail(poses, v, time, aero, ms.springLagZ(), er, eg, eb);
     }
 
-    // 6. Floating 3D hat (tracks top shell plate height!)
-    float topHatOffset = open * 0.026f + blob * 0.014f - sleep * 0.008f;
+    // 6. Floating 3D hat (sits cleanly on the top shell plate or top blob dome!)
+    float topHatOffset = open * 0.026f + blob * 0.010f - sleep * 0.014f;
     poses.pushPose();
     poses.translate(0, topHatOffset, ms.springLagZ() * 0.35f);
     renderHat(poses, v, hat, time, intensity);
     poses.popPose();
 
-    // 7. Expressive 7-mode Neo-Eyes mounted on the moving front shell plate
-    renderNeoEyes(poses, v, time, ms.eyeMood(), frontPlateZ, sr, sg, sb);
+    // 7. Expressive 7-mode Neo-Eyes mounted cleanly on the outermost front visor surface
+    renderNeoEyes(poses, v, time, ms.eyeMood(), frontOutermostZ, sr, sg, sb);
   }
 
   private static void renderInnerGyroCore(
@@ -573,8 +613,9 @@ public final class CompanionRenderer {
   }
 
   /**
-   * Renders the 6 floating magnetic shell plates (+Z, -Z, -X, +X, +Y, -Y) and their stepped
-   * organic blob sub-domes. Returns the outer Z coordinate of the front plate for eye mounting.
+   * Renders the 6 floating magnetic shell plates (+Z, -Z, -X, +X, +Y, -Y) with individual glowing
+   * plate trims and 2 stepped organic voxel-sphere domes per face in Blob mode. Returns the
+   * outermost Z coordinate of the front visor for unobstructed eye mounting.
    */
   private static float renderMagneticSplitShell(
       PoseStack p,
@@ -589,26 +630,31 @@ public final class CompanionRenderer {
       float er,
       float eg,
       float eb) {
-    float plateSpan = 0.088f - open * 0.008f - blob * 0.012f + sleep * 0.024f;
-    float baseDist = 0.100f + open * 0.028f - sleep * 0.006f;
-    float thick = 0.018f;
+    float plateSpan = 0.086f - open * 0.014f - blob * 0.014f + sleep * 0.024f;
+    float baseDist = 0.096f + open * 0.036f - blob * 0.010f - sleep * 0.004f;
+    float thick = 0.016f;
 
-    float pr = 0.036f + er * 0.10f;
-    float pg = 0.046f + eg * 0.10f;
-    float pb = 0.064f + eb * 0.10f;
+    float pr = 0.034f + er * 0.09f;
+    float pg = 0.044f + eg * 0.09f;
+    float pb = 0.062f + eb * 0.09f;
 
-    // Harmonic liquid waves for each face in Blob mode
-    float wFront = (float) (Math.sin(time * 6.4) * 0.014 * blob);
+    // Harmonic liquid waves for each face in Blob mode (front wave stays non-negative so it never
+    // dips behind the front corner shards!)
+    float wFront = (float) ((Math.sin(time * 6.4) + 1.0) * 0.007 * blob);
     float wBack = (float) (Math.sin(time * 6.4 + 2.1) * 0.014 * blob);
     float wLeft = (float) (Math.sin(time * 6.4 + 1.05) * 0.016 * blob);
     float wRight = (float) (Math.sin(time * 6.4 + 3.15) * 0.016 * blob);
     float wTop = (float) (Math.sin(time * 6.4 + 4.2) * 0.015 * blob);
     float wBot = (float) (Math.sin(time * 6.4 + 5.25) * 0.012 * blob);
 
-    // 1. Front Plate (+Z) - pushes forward in aero mode
-    float frontZ0 = baseDist + wFront + aero * 0.016f;
+    // 1. Front Visor Plate (+Z) - pushes forward in aero mode, recedes slightly when tesseract opens
+    float frontZ0 = (0.096f + open * 0.018f - blob * 0.008f) + wFront + aero * 0.022f;
     float frontZ1 = frontZ0 + thick;
     box(p, v, -plateSpan, -plateSpan, frontZ0, plateSpan, plateSpan, frontZ1, pr, pg, pb, 1f);
+    // Sleek glowing visor border on the front plate itself
+    float rim = 0.005f;
+    box(p, v, -plateSpan, plateSpan - rim, frontZ1 - 0.003f, plateSpan, plateSpan, frontZ1 + 0.001f, er, eg, eb, 1f);
+    box(p, v, -plateSpan, -plateSpan, frontZ1 - 0.003f, plateSpan, -plateSpan + rim, frontZ1 + 0.001f, er, eg, eb, 1f);
 
     // 2. Back Plate (-Z) - trails with spring lag
     float backZ1 = -(baseDist + wBack) + lagZ * 0.7f;
@@ -616,15 +662,17 @@ public final class CompanionRenderer {
     box(p, v, -plateSpan, -plateSpan, backZ0, plateSpan, plateSpan, backZ1, pr, pg, pb, 1f);
 
     // 3. Left & Right Plates (-X, +X) - flare out & sweep back in aero/tesseract mode
-    float sideX = baseDist + aero * 0.012f;
-    float sideLagZ = lagZ * 0.55f - aero * 0.015f;
+    float sideX = baseDist + aero * 0.014f;
+    float sideLagZ = lagZ * 0.55f - aero * 0.018f;
+    float lx0 = -(sideX + wLeft + thick), lx1 = -(sideX + wLeft);
+    float rx0 = sideX + wRight, rx1 = sideX + wRight + thick;
     box(
         p,
         v,
-        -(sideX + wLeft + thick),
+        lx0,
         -plateSpan + lagY * 0.4f,
         -plateSpan + sideLagZ,
-        -(sideX + wLeft),
+        lx1,
         plateSpan + lagY * 0.4f,
         plateSpan + sideLagZ,
         pr,
@@ -634,19 +682,25 @@ public final class CompanionRenderer {
     box(
         p,
         v,
-        sideX + wRight,
+        rx0,
         -plateSpan + lagY * 0.4f,
         -plateSpan + sideLagZ,
-        sideX + wRight + thick,
+        rx1,
         plateSpan + lagY * 0.4f,
         plateSpan + sideLagZ,
         pr,
         pg,
         pb,
         1f);
+    // Glowing accent strips on floating side plates when open or flying
+    if (open > 0.1f || aero > 0.1f) {
+      box(p, v, lx0 - 0.002f, -plateSpan * 0.7f, -0.006f + sideLagZ, lx0, plateSpan * 0.7f, 0.006f + sideLagZ, er, eg, eb, 1f);
+      box(p, v, rx1, -plateSpan * 0.7f, -0.006f + sideLagZ, rx1 + 0.002f, plateSpan * 0.7f, 0.006f + sideLagZ, er, eg, eb, 1f);
+    }
 
     // 4. Top & Bottom Plates (+Y, -Y)
     float topY0 = baseDist + wTop + lagY * 0.5f;
+    float topY1 = topY0 + thick;
     box(
         p,
         v,
@@ -654,78 +708,50 @@ public final class CompanionRenderer {
         topY0,
         -plateSpan + lagZ * 0.35f,
         plateSpan,
-        topY0 + thick,
+        topY1,
         plateSpan + lagZ * 0.35f,
         pr,
         pg,
         pb,
         1f);
     float botY1 = -(baseDist + wBot);
-    box(p, v, -plateSpan, botY1 - thick, -plateSpan, plateSpan, botY1, plateSpan, pr, pg, pb, 1f);
+    float botY0 = botY1 - thick;
+    box(p, v, -plateSpan, botY0, -plateSpan, plateSpan, botY1, plateSpan, pr, pg, pb, 1f);
 
-    // 5. Organic Fluid-Blob Sub-Domes (rounds out the 6 faces into a soft pulsing blob!)
+    // 5. Two-Tier Organic Voxel-Sphere Domes in Blob Mode (transforms the cube into a rounded blob!)
+    float frontOutermost = frontZ1;
     if (blob > 0.18f && sleep < 0.5f) {
-      float domeSpan = plateSpan * 0.64f;
-      float domeH = 0.013f * blob;
-      float dr = 0.048f + er * 0.26f;
-      float dg = 0.062f + eg * 0.26f;
-      float db = 0.088f + eb * 0.26f;
-      // Lateral & vertical soft domes
-      box(
-          p,
-          v,
-          -(sideX + wLeft + thick + domeH),
-          -domeSpan,
-          -domeSpan + sideLagZ,
-          -(sideX + wLeft + thick),
-          domeSpan,
-          domeSpan + sideLagZ,
-          dr,
-          dg,
-          db,
-          1f);
-      box(
-          p,
-          v,
-          sideX + wRight + thick,
-          -domeSpan,
-          -domeSpan + sideLagZ,
-          sideX + wRight + thick + domeH,
-          domeSpan,
-          domeSpan + sideLagZ,
-          dr,
-          dg,
-          db,
-          1f);
-      box(
-          p,
-          v,
-          -domeSpan,
-          topY0 + thick,
-          -domeSpan,
-          domeSpan,
-          topY0 + thick + domeH,
-          domeSpan,
-          dr,
-          dg,
-          db,
-          1f);
-      box(
-          p,
-          v,
-          -domeSpan,
-          -domeSpan,
-          backZ0 - domeH,
-          domeSpan,
-          domeSpan,
-          backZ0,
-          dr,
-          dg,
-          db,
-          1f);
+      float s1 = plateSpan * 0.72f;
+      float h1 = 0.015f * blob;
+      float s2 = plateSpan * 0.46f;
+      float h2 = 0.012f * blob;
+      float dr1 = 0.048f + er * 0.24f, dg1 = 0.064f + eg * 0.24f, db1 = 0.092f + eb * 0.24f;
+      float dr2 = 0.062f + er * 0.42f, dg2 = 0.082f + eg * 0.42f, db2 = 0.118f + eb * 0.42f;
+
+      // Front rounded visor dome tier 1 (wide enough to frame the entire eye array cleanly)
+      float fs1 = plateSpan * 0.88f;
+      box(p, v, -fs1, -fs1, frontZ1, fs1, fs1, frontZ1 + h1 * 0.45f, pr, pg, pb, 1f);
+      frontOutermost = frontZ1 + h1 * 0.45f;
+
+      // Left rounded dome tiers 1 & 2
+      box(p, v, lx0 - h1, -s1, -s1 + sideLagZ, lx0, s1, s1 + sideLagZ, dr1, dg1, db1, 1f);
+      box(p, v, lx0 - h1 - h2, -s2, -s2 + sideLagZ, lx0 - h1, s2, s2 + sideLagZ, dr2, dg2, db2, 1f);
+
+      // Right rounded dome tiers 1 & 2
+      box(p, v, rx1, -s1, -s1 + sideLagZ, rx1 + h1, s1, s1 + sideLagZ, dr1, dg1, db1, 1f);
+      box(p, v, rx1 + h1, -s2, -s2 + sideLagZ, rx1 + h1 + h2, s2, s2 + sideLagZ, dr2, dg2, db2, 1f);
+
+      // Top rounded dome tiers 1 & 2
+      box(p, v, -s1, topY1, -s1, s1, topY1 + h1, s1, dr1, dg1, db1, 1f);
+      box(p, v, -s2, topY1 + h1, -s2, s2, topY1 + h1 + h2, s2, dr2, dg2, db2, 1f);
+
+      // Bottom & Back rounded domes
+      box(p, v, -s1, botY0 - h1, -s1, s1, botY0, s1, dr1, dg1, db1, 1f);
+      box(p, v, -s1, -s1, backZ0 - h1, s1, s1, backZ0, dr1, dg1, db1, 1f);
+      box(p, v, -s2, -s2, backZ0 - h1 - h2, s2, s2, backZ0 - h1, dr2, dg2, db2, 1f);
     }
 
-    return frontZ1;
+    return frontOutermost;
   }
 
   /**
@@ -742,86 +768,82 @@ public final class CompanionRenderer {
       float sr,
       float sg,
       float sb) {
-    float z0 = frontZ + 0.001f;
-    float z1 = frontZ + 0.007f;
+    float z0 = frontZ + 0.002f;
+    float z1 = frontZ + 0.008f;
+    float[] eyeX = {-0.044f, 0.044f};
 
     switch (mood) {
       case SLEEP_SLITS -> {
         float h = 0.0035f;
-        for (float x : SENSOR_OFFSETS)
-          for (float y : SENSOR_OFFSETS)
-            box(p, v, x - 0.022f, y - h, z0, x + 0.022f, y + h, z1, sr, sg, sb, 1f);
+        for (float x : eyeX)
+          for (float y : new float[] {-0.042f, 0.042f})
+            box(p, v, x - 0.018f, y - h, z0, x + 0.018f, y + h, z1, sr, sg, sb, 1f);
       }
       case HAPPY_ARCS -> {
-        // Two cheerful upward chevron arcs (^ ^) on left and right eye columns
-        for (float cx : SENSOR_OFFSETS) {
-          // Peak of the happy arc
-          box(p, v, cx - 0.016f, 0.028f, z0, cx + 0.016f, 0.044f, z1, sr, sg, sb, 1f);
-          // Left & right downward tips of each happy arc
-          box(p, v, cx - 0.028f, 0.010f, z0, cx - 0.012f, 0.030f, z1, sr, sg, sb, 1f);
-          box(p, v, cx + 0.012f, 0.010f, z0, cx + 0.028f, 0.030f, z1, sr, sg, sb, 1f);
+        // Two cheerful upward chevron arcs (^ ^) well inside the front visor
+        for (float cx : eyeX) {
+          box(p, v, cx - 0.014f, 0.026f, z0, cx + 0.014f, 0.040f, z1, sr, sg, sb, 1f);
+          box(p, v, cx - 0.024f, 0.010f, z0, cx - 0.010f, 0.028f, z1, sr, sg, sb, 1f);
+          box(p, v, cx + 0.010f, 0.010f, z0, cx + 0.024f, 0.028f, z1, sr, sg, sb, 1f);
           // Warm lower cheek glow dots
           box(
               p,
               v,
-              cx - 0.018f,
-              -0.056f,
+              cx - 0.016f,
+              -0.046f,
               z0,
-              cx + 0.018f,
-              -0.042f,
+              cx + 0.016f,
+              -0.032f,
               z1,
               Math.min(1f, sr * 1.1f),
-              sg * 0.78f,
+              sg * 0.76f,
               sb * 0.85f,
               1f);
         }
       }
       case CURIOUS_ASYM -> {
-        // Left column: focused narrow scan sensors; Right column: wide zoomed lens (o_O)
-        for (float y : SENSOR_OFFSETS) {
-          // Left (-0.064): narrow horizontal scan slit
-          box(p, v, -0.086f, y - 0.012f, z0, -0.042f, y + 0.012f, z1, sr, sg, sb, 1f);
-          // Right (+0.064): expanded high-aperture sensor + inner bright pupil
-          float zoom = y > 0 ? 0.030f : 0.024f;
-          box(p, v, 0.064f - zoom, y - zoom, z0, 0.064f + zoom, y + zoom, z1, sr, sg, sb, 1f);
+        // Left column (-0.044): narrow scan slits; Right column (+0.044): wide zoomed lenses (o_O)
+        for (float y : new float[] {-0.042f, 0.042f}) {
+          box(p, v, -0.062f, y - 0.009f, z0, -0.026f, y + 0.009f, z1, sr, sg, sb, 1f);
+          float zoom = y > 0 ? 0.023f : 0.019f;
+          box(p, v, 0.044f - zoom, y - zoom, z0, 0.044f + zoom, y + zoom, z1, sr, sg, sb, 1f);
         }
       }
       case FOCUS_VISOR -> {
         // Sharp tactical V-slanted visor bars (\ /)
-        box(p, v, -0.090f, 0.036f, z0, -0.056f, 0.056f, z1, sr, sg, sb, 1f);
-        box(p, v, -0.062f, 0.020f, z0, -0.026f, 0.040f, z1, sr, sg, sb, 1f);
-        box(p, v, 0.026f, 0.020f, z0, 0.062f, 0.040f, z1, sr, sg, sb, 1f);
-        box(p, v, 0.056f, 0.036f, z0, 0.090f, 0.056f, z1, sr, sg, sb, 1f);
-        // Lower lock-on reticles
-        for (float x : SENSOR_OFFSETS)
-          box(p, v, x - 0.020f, -0.066f, z0, x + 0.020f, -0.048f, z1, sr, sg, sb, 1f);
+        box(p, v, -0.066f, 0.032f, z0, -0.040f, 0.048f, z1, sr, sg, sb, 1f);
+        box(p, v, -0.044f, 0.018f, z0, -0.018f, 0.034f, z1, sr, sg, sb, 1f);
+        box(p, v, 0.018f, 0.018f, z0, 0.044f, 0.034f, z1, sr, sg, sb, 1f);
+        box(p, v, 0.040f, 0.032f, z0, 0.066f, 0.048f, z1, sr, sg, sb, 1f);
+        for (float x : eyeX)
+          box(p, v, x - 0.016f, -0.052f, z0, x + 0.016f, -0.038f, z1, sr, sg, sb, 1f);
       }
       case ORBIT_SPINNER -> {
         // 4 sensor nodes revolving around the front plate center like a neural loading ring
         for (int i = 0; i < 4; i++) {
           double ang = time * 5.8 + i * (Math.PI / 2.0);
-          float rx = (float) (Math.cos(ang) * 0.064);
-          float ry = (float) (Math.sin(ang) * 0.064);
-          float hs = (i % 2 == 0) ? 0.022f : 0.017f;
+          float rx = (float) (Math.cos(ang) * 0.044);
+          float ry = (float) (Math.sin(ang) * 0.044);
+          float hs = (i % 2 == 0) ? 0.018f : 0.014f;
           box(p, v, rx - hs, ry - hs, z0, rx + hs, ry + hs, z1, sr, sg, sb, 1f);
         }
       }
       case VOICE_WAVE -> {
         // Upper eyes stay attentive while lower sensors pulse as a 4-bar audio waveform equalizer
-        for (float x : SENSOR_OFFSETS) {
-          box(p, v, x - 0.022f, 0.042f, z0, x + 0.022f, 0.084f, z1, sr, sg, sb, 1f);
+        for (float x : eyeX) {
+          box(p, v, x - 0.018f, 0.026f, z0, x + 0.018f, 0.058f, z1, sr, sg, sb, 1f);
         }
-        float[] barX = {-0.072f, -0.024f, 0.024f, 0.072f};
+        float[] barX = {-0.052f, -0.018f, 0.018f, 0.052f};
         for (int i = 0; i < 4; i++) {
-          float amp = (float) (0.012 + Math.abs(Math.sin(time * 13.5 + i * 1.1)) * 0.032);
+          float amp = (float) (0.010 + Math.abs(Math.sin(time * 13.5 + i * 1.1)) * 0.024);
           box(
               p,
               v,
-              barX[i] - 0.013f,
-              -0.058f - amp,
+              barX[i] - 0.010f,
+              -0.038f - amp,
               z0,
-              barX[i] + 0.013f,
-              -0.058f + amp,
+              barX[i] + 0.010f,
+              -0.038f + amp,
               z1,
               sr,
               sg,
@@ -832,17 +854,19 @@ public final class CompanionRenderer {
       default -> {
         // NEUTRAL_BLINK: natural 120ms blink every ~5.5 seconds
         double blinkCycle = time % 5.5;
-        float eyeHalfH = (blinkCycle > 5.36) ? 0.004f : 0.022f;
-        for (float x : SENSOR_OFFSETS)
-          for (float y : SENSOR_OFFSETS)
-            box(p, v, x - 0.022f, y - eyeHalfH, z0, x + 0.022f, y + eyeHalfH, z1, sr, sg, sb, 1f);
+        float eyeHalfH = (blinkCycle > 5.36) ? 0.004f : 0.018f;
+        for (float x : eyeX)
+          for (float y : new float[] {-0.042f, 0.042f})
+            box(p, v, x - 0.018f, y - eyeHalfH, z0, x + 0.018f, y + eyeHalfH, z1, sr, sg, sb, 1f);
       }
     }
   }
 
   /**
-   * 8 detachable corner shards that pull inward when sleeping, orbit & float outward when thinking
-   * or morphing into a blob, and trail behind with spring inertia.
+   * 8 morphing corner shards:
+   * - In Blob mode, they retract inward (0.104 -> 0.074) to chamfer/round the 8 cube corners into a
+   *   voxel-sphere while releasing 4 tiny orbiting plasma droplets!
+   * - In Tesseract mode, they detach outward (0.104 -> 0.146) as orbiting sci-fi satellites!
    */
   private static void renderCornerPods(
       PoseStack p,
@@ -863,27 +887,29 @@ public final class CompanionRenderer {
       for (float sy : CORNER_SIGNS) {
         for (float sz : CORNER_SIGNS) {
           double phase = idx++ * 0.8;
-          float pullOut;
-          if (napping) {
-            pullOut = (float) (0.001 + (sleepBreath + 1.0) * 0.002);
-          } else {
-            float harmonic = (float) ((Math.sin(time * (thinking ? 5.4 : 2.2) + phase) + 1.0) * 0.5);
-            pullOut = 0.005f + open * (0.022f + harmonic * 0.014f) + blob * (0.008f + harmonic * 0.012f);
-          }
+          float harmonic = (float) ((Math.sin(time * (thinking ? 5.4 : 2.2) + phase) + 1.0) * 0.5);
+          // Retract corners inward in Blob mode to round the silhouette; push outward in Tesseract mode!
+          float radial =
+              napping
+                  ? (float) (0.098 + (sleepBreath + 1.0) * 0.002)
+                  : 0.102f
+                      + open * (0.036f + harmonic * 0.014f)
+                      - blob * (0.026f - harmonic * 0.006f);
 
-          // Orbital swirl offset when tesseract or blob mode is active
           float swirlX =
-              napping ? 0f : (float) (Math.cos(time * 3.8 + phase) * 0.014 * (open + blob * 0.5));
+              napping ? 0f : (float) (Math.cos(time * 3.8 + phase) * 0.016 * open);
           float swirlY =
-              napping ? 0f : (float) (Math.sin(time * 3.8 + phase) * 0.014 * (open + blob * 0.5));
-          float sweepZ = (sz < 0) ? (ms.springLagZ() * 0.9f - aero * 0.022f) : (ms.springLagZ() * 0.3f);
+              napping ? 0f : (float) (Math.sin(time * 3.8 + phase) * 0.016 * open);
+          float sweepZ =
+              (sz < 0)
+                  ? (ms.springLagZ() * 0.9f - aero * 0.028f)
+                  : (ms.springLagZ() * 0.3f - aero * 0.012f);
 
-          float cx = sx * (0.104f + pullOut) + swirlX;
-          float cy = sy * (0.104f + pullOut) + swirlY + (sz < 0 ? ms.springLagY() * 0.6f : 0f);
-          float cz = sz * (0.104f + pullOut) + sweepZ;
+          float cx = sx * radial + swirlX;
+          float cy = sy * radial + swirlY + (sz < 0 ? ms.springLagY() * 0.6f : 0f);
+          float cz = sz * (radial - (sz > 0 ? blob * 0.014f : 0f)) + sweepZ;
 
-          // In high Blob mode, shrink the boxy metallic corner shell so the energy droplet dominates
-          float hs = 0.024f * (1.0f - blob * 0.42f);
+          float hs = 0.020f * (1.0f - blob * 0.25f);
           box(
               p,
               v,
@@ -893,15 +919,16 @@ public final class CompanionRenderer {
               cx + hs,
               cy + hs,
               cz + hs,
-              0.055f + er * 0.22f,
-              0.070f + eg * 0.22f,
-              0.095f + eb * 0.22f,
+              0.055f + er * 0.24f,
+              0.070f + eg * 0.24f,
+              0.095f + eb * 0.24f,
               1f);
-          // Glowing inner energy core droplet
-          float cs = 0.014f + blob * 0.005f + open * 0.003f;
-          float icx = sx * (0.092f + pullOut * 0.65f) + swirlX * 0.8f;
-          float icy = sy * (0.092f + pullOut * 0.65f) + swirlY * 0.8f;
-          float icz = sz * (0.092f + pullOut * 0.65f) + sweepZ * 0.8f;
+          // Glowing energy crystal node protruding slightly from the corner shard socket so both
+          // the metallic housing and the bright energy core are clearly visible in 3D!
+          float cs = 0.013f + open * 0.004f + blob * 0.003f;
+          float icx = cx + sx * 0.009f;
+          float icy = cy + sy * 0.009f;
+          float icz = cz + sz * 0.009f;
           box(
               p,
               v,
@@ -911,11 +938,36 @@ public final class CompanionRenderer {
               icx + cs,
               icy + cs,
               icz + cs,
-              er * 0.95f,
-              eg * 0.95f,
-              eb * 0.95f,
+              er * 0.98f,
+              eg * 0.98f,
+              eb * 0.98f,
               1f);
         }
+      }
+    }
+
+    // In Blob mode, spawn 4 tiny orbiting ferrofluid satellite droplets framing the sides/halo
+    // (kept behind the front visor plane so they never obscure the eyes!)
+    if (blob > 0.45f && !napping) {
+      float dropSize = 0.012f * blob;
+      for (int i = 0; i < 4; i++) {
+        double ang = time * 3.6 + i * (Math.PI / 2.0);
+        float dx = (float) (Math.cos(ang) * 0.152);
+        float dy = (float) (Math.sin(ang) * 0.142);
+        float dz = (float) (-0.015 + Math.sin(ang * 2.0) * 0.055);
+        box(
+            p,
+            v,
+            dx - dropSize,
+            dy - dropSize,
+            dz - dropSize,
+            dx + dropSize,
+            dy + dropSize,
+            dz + dropSize,
+            er,
+            eg,
+            eb,
+            1f);
       }
     }
   }

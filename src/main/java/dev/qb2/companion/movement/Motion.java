@@ -33,6 +33,17 @@ public final class Motion {
     initialized = true;
   }
 
+  /** Direct physics step (used during grab-hold & ballistic throw) with smooth interpolation. */
+  public void stepDirect(Point nextPos) {
+    if (!initialized) {
+      reset(nextPos);
+      return;
+    }
+    previous = position;
+    velocity = nextPos.subtract(position);
+    position = nextPos;
+  }
+
   public static Point constrain(Point center, Point point, double radius) {
     Point delta = point.subtract(center);
     return delta.length() > radius ? center.add(delta.unit().scale(radius)) : point;

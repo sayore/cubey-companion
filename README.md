@@ -6,6 +6,8 @@ Cubey ist kein bloßes Chatfenster, sondern ein physisch in der Spielwelt präse
 
 ![Cubey im Create-Workshop](docs/images/qb2-create-workshop.jpg)
 
+![Cubey Neo-Fluid Morphing Phases](docs/images/qb2-neo-fluid-morphs.png)
+
 | Live-Antwort im Spiel | Ingame-Einstellungen (`K`) | Katalog- & Block-Inspektion |
 |---|---|---|
 | ![Gemma Live](docs/images/qb2-google-live.png) | ![Settings](docs/images/qb2-settings.png) | ![Craftoria Speech](docs/images/qb2-craftoria-speech.png) |
@@ -97,6 +99,8 @@ Jeder Server mit einem `/v1/chat/completions`-Endpunkt wird unterstützt:
 ## 3. Bedienung & Interaktion im Spiel
 
 ### Direkte Maus-Interaktion mit Cubey
+- **Linksklick (LMB) auf Cubey gedrückt halten:** Cubey im Gravitationsgriff **aufheben & umhertragen** (einfach loslassen zum sanften Absetzen).
+- **Während LMB gedrückt ist → Rechtsklick (RMB) halten & loslassen:** **Wurf aufladen (`⚡ [██████]`) & Cubey werfen** – je länger du RMB hältst (bis 2 Sekunden), desto weiter fliegt er im aerodynamischen Delta-Modus mit elastischem Block-Abprallen (`*boing*`)!
 - **Rechtsklick mit leerer Hand auf Cubey:** Streicheln / Anstupsen (`♥`-Blase, fröhlicher Spin & Klang).
 - **Rechtsklick mit einem Item in der Hand auf Cubey:** *„Was halte ich hier?“* – Cubey untersucht das Item in deiner Hand, schlägt im Rezept-Katalog nach und erklärt dir Funktion und Verwendung.
 - **`Shift + Rechtsklick` auf Cubey:** Hinsetzen (Napping) / Aufwecken direkt umschalten.

@@ -375,6 +375,27 @@ public final class ClientController {
   private void interaction(InputEvent.InteractionKeyMappingTriggered event) {
     if (session == null || mc.player == null || mc.level == null || event.isCanceled()) return;
     session.markPlayerActive();
+    // 0. While holding Cubey (LMB), block normal mining/use interactions so RMB charges the throw!
+    if (session.grabThrow.isGrabbed()) {
+      event.setCanceled(true);
+      event.setSwingHand(false);
+      return;
+    }
+    // 0b. Left-click directly on Cubey -> Grab him into your gravity hold!
+    if (event.isAttack() && clickedOnCompanion()) {
+      event.setCanceled(true);
+      event.setSwingHand(false);
+      session.wakeUp();
+      session.stopGuiding();
+      session.grabThrow.startGrab();
+      session.bubbles.thought("✧", session.tick);
+      audio.play(
+          mc,
+          configuration.settings(),
+          session.motion.position(),
+          dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+      return;
+    }
     // 1. Direct right-click interaction on Cubey's 0.26-radius hitbox
     if (!event.isAttack() && clickedOnCompanion()) {
       event.setCanceled(true);
