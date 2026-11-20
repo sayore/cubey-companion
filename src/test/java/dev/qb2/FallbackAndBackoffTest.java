@@ -55,6 +55,8 @@ final class FallbackAndBackoffTest {
       s.provider = "google";
       s.endpoint = "http://127.0.0.1:" + port + "/v1beta";
       s.model = "gemma-4-31b-it";
+      s.modelChain = "";
+      s.ambientModel = "";
       s.fallbackProvider = "openai";
       s.fallbackEndpoint = "http://127.0.0.1:" + port + "/v1";
       s.fallbackModel = "local-fallback";
@@ -97,6 +99,8 @@ final class FallbackAndBackoffTest {
       int port = server.getAddress().getPort();
       Settings s = new Settings();
       s.endpoint = "http://127.0.0.1:" + port + "/v1beta";
+      s.modelChain = "";
+      s.ambientModel = "";
       s.fallbackProvider = "openai";
       s.fallbackEndpoint = "http://127.0.0.1:" + port + "/v1";
       s.fallbackModel = "local-fallback";

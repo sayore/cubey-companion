@@ -69,11 +69,12 @@ public final class ContainerMemory {
       lastSignature.remove(lastSignature.keySet().iterator().next());
     }
     return Optional.of(
-        Episode.create(
+        Episode.createAt(
             scope,
             "container_memory",
             kw.stream().filter(w -> w.length() <= 200).limit(1000).toList(),
-            summary.toString()));
+            summary.toString(),
+            containerPos));
   }
 
   public void reset() {

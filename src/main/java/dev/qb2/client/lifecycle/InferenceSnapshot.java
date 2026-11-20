@@ -20,12 +20,28 @@ public record InferenceSnapshot(
       double exploreRadius,
       String knowledgeScope,
       boolean autonomous) {
+    return capture(
+        mc, session, scope, reason, text, direct, exploreRadius, knowledgeScope, autonomous, 45);
+  }
+
+  public static InferenceSnapshot capture(
+      Minecraft mc,
+      CompanionSession session,
+      String scope,
+      String reason,
+      String text,
+      boolean direct,
+      double exploreRadius,
+      String knowledgeScope,
+      boolean autonomous,
+      int speechSeconds) {
     var level = Objects.requireNonNull(mc.level);
     var player = Objects.requireNonNull(mc.player);
     var context = new LinkedHashMap<String, Object>();
     context.put("knowledgeScope", knowledgeScope);
     context.put(
-        "speechAllowed", direct || (autonomous && session.tick - session.lastSpeech >= 900));
+        "speechAllowed",
+        direct || (autonomous && session.tick - session.lastSpeech >= speechSeconds * 20L));
     context.put(
         "movement",
         Map.of(

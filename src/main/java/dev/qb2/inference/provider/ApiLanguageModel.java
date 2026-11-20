@@ -11,18 +11,25 @@ public final class ApiLanguageModel implements LanguageModel {
   private final Settings settings;
   private final String key;
   private final String fallbackKey;
+  private final boolean ambient;
   private final Gson json = new Gson();
   private volatile String lastUsedModel = "";
 
   public ApiLanguageModel(HttpTransport http, Settings settings, String key) {
-    this(http, settings, key, "");
+    this(http, settings, key, "", false);
   }
 
   public ApiLanguageModel(HttpTransport http, Settings settings, String key, String fallbackKey) {
+    this(http, settings, key, fallbackKey, false);
+  }
+
+  public ApiLanguageModel(
+      HttpTransport http, Settings settings, String key, String fallbackKey, boolean ambient) {
     this.http = http;
     this.settings = settings;
     this.key = key == null ? "" : key;
     this.fallbackKey = fallbackKey == null ? "" : fallbackKey;
+    this.ambient = ambient;
   }
 
   public String lastUsedModel() {
@@ -30,22 +37,33 @@ public final class ApiLanguageModel implements LanguageModel {
   }
 
   public String complete(String context) throws Exception {
-    try {
-      String reply =
-          completeWith(settings.provider, settings.endpoint, settings.model, key, context);
-      lastUsedModel = settings.model;
-      return reply;
-    } catch (InterruptedException e) {
-      throw e;
-    } catch (Exception primaryError) {
-      if (!settings.hasFallback() || !shouldFallback(primaryError)) throw primaryError;
+    List<String> candidates = ModelHealth.orderCandidates(settings.parsedModelChain(ambient));
+    Exception lastError = null;
+    for (String candidate : candidates) {
+      try {
+        String reply = completeWith(settings.provider, settings.endpoint, candidate, key, context);
+        ModelHealth.markHealthy(candidate);
+        lastUsedModel = candidate;
+        return reply;
+      } catch (InterruptedException e) {
+        throw e;
+      } catch (Exception err) {
+        lastError = err;
+        if (!shouldFallback(err)) throw err;
+        ModelHealth.markUnhealthy(candidate);
+      }
+    }
+    if (settings.hasFallback()) {
       String fp = settings.fallbackProvider.isBlank() ? settings.provider : settings.fallbackProvider;
       String fe = settings.fallbackEndpoint.isBlank() ? settings.endpoint : settings.fallbackEndpoint;
       String fk = fallbackKey.isBlank() ? key : fallbackKey;
       String reply = completeWith(fp, fe, settings.fallbackModel, fk, context);
+      ModelHealth.markHealthy(settings.fallbackModel);
       lastUsedModel = "fallback:" + settings.fallbackModel;
       return reply;
     }
+    if (lastError != null) throw lastError;
+    throw new IllegalStateException("No models configured");
   }
 
   private static boolean shouldFallback(Exception error) {

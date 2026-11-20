@@ -29,9 +29,22 @@ public final class CompanionSession {
   private long actionUntil;
   private Observation actionTarget;
   public final FlightPlanner flight = new FlightPlanner();
+  public final PlayerTrail trail = new PlayerTrail();
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
   public volatile boolean apiBackoff;
+  public int errorTintTicks;
+  private Point lastTrackedPlayerPos;
+  private float lastTrackedYaw, lastTrackedPitch;
+  private long lastActivityTick;
+
+  public void markPlayerActive() {
+    lastActivityTick = tick;
+  }
+
+  public boolean playerIdle() {
+    return tick > 160 && tick - lastActivityTick > 160;
+  }
 
   public Observation activeTarget() {
     return actionTarget != null ? actionTarget : attention.target();
@@ -55,7 +68,20 @@ public final class CompanionSession {
   public void tick(Minecraft mc, Settings settings, boolean thinking) {
     if (mc.player == null || mc.level == null) return;
     tick++;
+    if (errorTintTicks > 0) errorTintTicks--;
     Point player = WorldSensor.point(mc.player.position());
+    float yaw = mc.player.getYRot();
+    float pitch = mc.player.getXRot();
+    if (lastTrackedPlayerPos == null
+        || lastTrackedPlayerPos.distance(player) > 0.05
+        || Math.abs(yaw - lastTrackedYaw) > 2.0f
+        || Math.abs(pitch - lastTrackedPitch) > 2.0f) {
+      lastActivityTick = tick;
+      lastTrackedPlayerPos = player;
+      lastTrackedYaw = yaw;
+      lastTrackedPitch = pitch;
+    }
+    trail.record(player);
     Vec3 forward = mc.player.getLookAngle().multiply(1, 0, 1).normalize();
     Vec3 side = forward.cross(new Vec3(0, 1, 0));
     Point home =
@@ -94,7 +120,11 @@ public final class CompanionSession {
         };
     flightGoal = FlightClearance.nearest(player, desired, settings.exploreRadius, free);
     flightMode = plan.mode();
-    motion.tick(player, flightGoal, settings.exploreRadius, free);
+    if (settings.smoothFollow) {
+      motion.tickSmoothFollow(player, flightGoal, settings.exploreRadius, free, trail);
+    } else {
+      motion.tick(player, flightGoal, settings.exploreRadius, free);
+    }
     state = bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : flightMode;
     if (tick % 10 == 0) {
       Point facing =

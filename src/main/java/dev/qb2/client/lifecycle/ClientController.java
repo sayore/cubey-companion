@@ -44,9 +44,13 @@ public final class ClientController {
       new dev.qb2.perception.inventory.ContainerMemory();
   private final dev.qb2.memory.SessionSummarizer summarizer =
       new dev.qb2.memory.SessionSummarizer();
+  private final dev.qb2.cognition.planning.AmbientBuffer ambientBuffer =
+      new dev.qb2.cognition.planning.AmbientBuffer();
   private final List<Episode> pendingBackgroundEpisodes = new ArrayList<>();
   private final MemoryInspectorClient inspectorClient = new MemoryInspectorClient();
   private Point lastInteractedBlock;
+  private boolean wasPlayerIdle;
+  private long lastAmbientFallbackTick = -1000;
   private final dev.qb2.diagnostics.ClientSmokeProbe smoke =
       new dev.qb2.diagnostics.ClientSmokeProbe();
   private final Deque<Trigger> triggers = new ArrayDeque<>();
@@ -115,6 +119,8 @@ public final class ClientController {
     lastInteractedBlock = null;
     containerMemory.reset();
     summarizer.reset();
+    ambientBuffer.clear();
+    wasPlayerIdle = false;
     pendingBackgroundEpisodes.clear();
     epoch++;
     mind.cancel(epoch);
@@ -143,7 +149,7 @@ public final class ClientController {
     }
     if (session == null || configuration.settings().paused || mc.isPaused()) return;
     Point currentPosition = dev.qb2.perception.world.WorldSensor.point(player.position());
-    if (lastPlayerPosition != null && lastPlayerPosition.distance(currentPosition) > 32) {
+    if (lastPlayerPosition != null && lastPlayerPosition.distance(currentPosition) > 96) {
       reset();
       session = new CompanionSession();
     }
@@ -151,6 +157,26 @@ public final class ClientController {
     var s = configuration.settings();
     session.apiBackoff = mind.inCooldown();
     session.tick(mc, s, mind.busy());
+    boolean idleNow = session.playerIdle();
+    if (wasPlayerIdle && !idleNow && ambientBuffer.hasDeferred()) {
+      deliverDeferredAmbient(s);
+    }
+    wasPlayerIdle = idleNow;
+    if (mind.inCooldown()
+        && s.autonomous
+        && !idleNow
+        && session.tick - lastAmbientFallbackTick >= 300
+        && !session.observations.isEmpty()) {
+      lastAmbientFallbackTick = session.tick;
+      var obs = session.observations.get(0);
+      session.focusOn(obs);
+      ambientBuffer
+          .consumePhrase(obs.registryId())
+          .ifPresent(
+              phrase -> {
+                if (s.thoughts) session.bubbles.thought(phrase, session.tick);
+              });
+    }
     knowledge.tick(mc, s.nerveEndpoint, configuration.nerveKey());
     if (session.tick % 20 == 0) {
       var vitals = PlayerSituationSensor.capture(player);
@@ -194,10 +220,11 @@ public final class ClientController {
     if (s.autonomous
         && session.tick - session.lastRequest >= s.inferenceSeconds * 20L
         && triggers.isEmpty()) enqueue(new Trigger("curiosity", 3, ""));
-    if (!mind.busy() && !triggers.isEmpty() && session.tick - session.lastRequest >= 40) {
+    if (!mind.busy() && !triggers.isEmpty()) {
       Trigger trigger =
           triggers.stream().min(Comparator.comparingInt(Trigger::priority)).orElseThrow();
-      if (!mind.inCooldown() || trigger.priority() == 0) {
+      boolean urgent = trigger.priority() == 0;
+      if (urgent || (!mind.inCooldown() && session.tick - session.lastRequest >= 40)) {
         triggers.remove(trigger);
         request(trigger);
       }
@@ -248,6 +275,7 @@ public final class ClientController {
 
   private void chat(ChatHistory.Source source, String text) {
     if (!session.dedup.accept("chat:" + text, session.tick, 40)) return;
+    if (source == ChatHistory.Source.PLAYER) session.markPlayerActive();
     session.chat.add(source, text, session.tick);
     if (ChatHistory.addressed(text, configuration.settings().triggers))
       enqueue(new Trigger("direct address", 0, text));
@@ -262,6 +290,7 @@ public final class ClientController {
   private void interaction(InputEvent.InteractionKeyMappingTriggered event) {
     if (session == null || !(mc.hitResult instanceof BlockHitResult hit) || event.isCanceled())
       return;
+    session.markPlayerActive();
     if (!event.isAttack()) {
       var bp = hit.getBlockPos();
       lastInteractedBlock = new Point(bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5);
@@ -294,7 +323,8 @@ public final class ClientController {
             trigger.priority() == 0,
             s.exploreRadius,
             knowledge.scope,
-            s.autonomous);
+            s.autonomous,
+            s.speechSeconds);
     keywords = snapshot.keywords();
     var allEvents = new ArrayList<Episode>(snapshot.events());
     if (!pendingBackgroundEpisodes.isEmpty()) {
@@ -416,22 +446,48 @@ public final class ClientController {
     inferenceMillis = outcome.millis();
     recalled = outcome.memories();
     if (outcome.decision() == null) {
+      session.errorTintTicks = 120;
       if (mind.inCooldown())
         audio.play(
             mc,
             configuration.settings(),
             session.motion.position(),
             dev.qb2.rendering.audio.CompanionAudio.Cue.BACKOFF);
-      if (activePriority == 0 && !error.isBlank())
-        mc.gui.getChat().addMessage(Component.literal("[QB2 status] " + error));
+      if (!error.isBlank()) {
+        org.slf4j.LoggerFactory.getLogger("qb2").warn("QB2 inference failed: {}", error);
+      }
       return;
     }
+    session.errorTintTicks = 0;
     var d = outcome.decision();
     if (Set.of("inspect", "approach", "go_to", "orbit").contains(d.action())
         && session.observations.stream().noneMatch(o -> o.key().equals(d.target()))) {
       error = "Decision expired: target no longer visible";
       return;
     }
+    String targetRegistry =
+        session.observations.stream()
+            .filter(o -> o.key().equals(d.target()))
+            .map(Observation::registryId)
+            .findFirst()
+            .orElse(
+                session.attention.target() == null
+                    ? "general"
+                    : session.attention.target().registryId());
+    if (!d.thought().isBlank()) ambientBuffer.storePhrase(targetRegistry, d.thought());
+
+    boolean deferSpeech = activePriority > 0 && session.playerIdle() && !d.speech().isBlank();
+    if (deferSpeech) {
+      ambientBuffer.deferForActiveReturn(d.speech(), d.thought());
+      var silent = new dev.qb2.cognition.decisions.Decision(
+          d.action(), d.target(), d.thought(), "", d.memory());
+      session.apply(silent);
+      lastAction = silent.action();
+      if (!silent.thought().isBlank())
+        summarizer.record(scope, "thought", silent.thought()).ifPresent(this::queueBackgroundEpisode);
+      return;
+    }
+
     session.apply(d);
     lastAction = d.action();
     if (!d.thought().isBlank())
@@ -443,19 +499,42 @@ public final class ClientController {
           session.motion.position(),
           dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
     if (!d.speech().isBlank()) {
-      String speech = d.speech().replace('\n', ' ');
-      session.chat.add(ChatHistory.Source.QB2, speech, session.tick);
-      summarizer.record(scope, "speech", speech).ifPresent(this::queueBackgroundEpisode);
-      audio.play(
-          mc,
-          configuration.settings(),
-          session.motion.position(),
-          dev.qb2.rendering.audio.CompanionAudio.Cue.SPEECH);
-      mc.gui.getChat().addMessage(Component.literal("[QB2] " + speech));
-      if (configuration.settings().serverChat && player.connection != null)
-        player.connection.sendChat("[QB2] " + speech.substring(0, Math.min(240, speech.length())));
+      speakLocally(d.speech());
     }
     if (d.action().equals("recall")) enqueue(new Trigger("memory reflection", 2, ""));
+  }
+
+  private void deliverDeferredAmbient(Settings s) {
+    ambientBuffer
+        .pollDeferredThought()
+        .ifPresent(
+            t -> {
+              if (s.thoughts) session.bubbles.thought(t, session.tick);
+            });
+    ambientBuffer
+        .pollDeferredSpeech()
+        .ifPresent(
+            speech -> {
+              if (s.speech) {
+                session.bubbles.speech(speech, session.tick);
+                session.lastSpeech = session.tick;
+                speakLocally(speech);
+              }
+            });
+  }
+
+  private void speakLocally(String rawSpeech) {
+    String speech = rawSpeech.replace('\n', ' ');
+    session.chat.add(ChatHistory.Source.QB2, speech, session.tick);
+    summarizer.record(scope, "speech", speech).ifPresent(this::queueBackgroundEpisode);
+    audio.play(
+        mc,
+        configuration.settings(),
+        session.motion.position(),
+        dev.qb2.rendering.audio.CompanionAudio.Cue.SPEECH);
+    mc.gui.getChat().addMessage(Component.literal("[QB2] " + speech));
+    if (configuration.settings().serverChat && player.connection != null)
+      player.connection.sendChat("[QB2] " + speech.substring(0, Math.min(240, speech.length())));
   }
 
   private String scope() {

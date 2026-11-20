@@ -37,11 +37,20 @@ public final class FlightPlanner {
       desired = held;
       mode = position.distance(held) > 0.35 ? "Exploring" : "Curious";
     } else if (target != null && !action.equals("explore")) {
-      desired = hoverAbove(target);
-      if (action.equals("orbit"))
+      if (action.equals("go_to")) {
+        desired = hoverAbove(target);
+      } else if (action.equals("orbit")) {
         desired =
-            desired.add(
-                new Point(Math.cos(tick * 0.025) * 1.2, 0.15, Math.sin(tick * 0.025) * 1.2));
+            hoverAbove(target)
+                .add(new Point(Math.cos(tick * 0.025) * 1.55, 0.20, Math.sin(tick * 0.025) * 1.55));
+      } else {
+        // Keep comfortable standoff distance from inspected blocks so the cube never clips and its
+        // four sensor tiles remain clearly visible.
+        Point towardPlayer = player.subtract(target.position());
+        Point horiz = new Point(towardPlayer.x(), 0, towardPlayer.z());
+        Point dir = horiz.length() > 0.1 ? horiz.unit() : new Point(1, 0, 0);
+        desired = target.position().add(dir.scale(1.55)).add(new Point(0, 0.70, 0));
+      }
       mode = position.distance(desired) > 0.35 ? "Exploring" : "Curious";
     } else {
       if (roam == null

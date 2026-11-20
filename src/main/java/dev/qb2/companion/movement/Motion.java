@@ -99,6 +99,78 @@ public final class Motion {
     position = next;
   }
 
+  /**
+   * Smooth trail-following flight: never drags or teleports when the player walks ahead; instead
+   * glides along the player's walked breadcrumb trail until caught up.
+   */
+  public void tickSmoothFollow(
+      Point center, Point target, double radius, Predicate<Point> free, PlayerTrail trail) {
+    if (!initialized) reset(center);
+    // Only snap on extreme portal/dimension/command teleports (> 96 blocks).
+    if (position.distance(center) > 96 && free.test(center)) {
+      if (trail != null) trail.clear();
+      reset(center);
+      return;
+    }
+    if (!free.test(position)) {
+      double recoveryRadius = Math.max(radius, position.distance(center) + 2.0);
+      reset(FlightClearance.nearest(center, position, recoveryRadius, free));
+    }
+    previous = position;
+    double distFromPlayer = position.distance(center);
+    boolean catchingUp = distFromPlayer > radius;
+    Point goal =
+        catchingUp && trail != null
+            ? trail.nextWaypoint(position, constrain(center, target, radius))
+            : constrain(center, target, radius);
+    double navRadius = catchingUp ? Math.max(radius, distFromPlayer + 3.0) : radius;
+
+    Point steerTarget = goal;
+    if (!pathFree(position, goal, free)) {
+      boolean reuse =
+          cachedWaypoint != null
+              && waypointTtl > 0
+              && cachedGoal != null
+              && cachedGoal.distance(goal) < 0.75
+              && position.distance(cachedWaypoint) > 0.35
+              && free.test(cachedWaypoint);
+      if (reuse) {
+        waypointTtl--;
+        steerTarget = cachedWaypoint;
+      } else {
+        var waypoint = VoxelPathfinder.nextWaypoint(center, position, goal, navRadius, free);
+        cachedGoal = goal;
+        cachedWaypoint = waypoint.orElse(null);
+        waypointTtl = cachedWaypoint != null ? 8 : 0;
+        if (cachedWaypoint != null) steerTarget = cachedWaypoint;
+      }
+    } else {
+      cachedWaypoint = null;
+      waypointTtl = 0;
+    }
+
+    double maxStep = catchingUp ? Math.min(0.26, 0.14 + (distFromPlayer - radius) * 0.015) : MAX_STEP;
+    Point delta = steerTarget.subtract(position);
+    Point desired = delta.unit().scale(Math.min(maxStep, delta.length() * (catchingUp ? 0.10 : 0.06)));
+    velocity = velocity.lerp(desired, catchingUp ? 0.18 : 0.15);
+    Point next = catchingUp ? position.add(velocity) : constrain(center, position.add(velocity), radius);
+    if (!pathFree(position, next, free)) {
+      cachedWaypoint = null;
+      waypointTtl = 0;
+      next = position;
+      for (Point offset : DETOURS) {
+        Point candidate = position.add(offset);
+        if ((catchingUp || candidate.distance(center) <= radius)
+            && pathFree(position, candidate, free)) {
+          next = candidate;
+          break;
+        }
+      }
+      velocity = Point.ZERO;
+    }
+    position = next;
+  }
+
   private static boolean pathFree(Point from, Point to, Predicate<Point> free) {
     int steps = Math.max(1, (int) Math.ceil(from.distance(to) / 0.07));
     for (int i = 1; i <= steps; i++)

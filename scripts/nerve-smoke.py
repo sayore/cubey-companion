@@ -23,9 +23,11 @@ with tempfile.TemporaryDirectory(prefix='qb2-nerve-test-') as directory:
         proc.terminate();proc.wait();raise RuntimeError('Bridge startup timeout')
     proc=start()
     try:
-        episode={'id':str(uuid.uuid4()),'scope':'a'*64,'kind':'thought','keywords':['minecraft:iron_ingot','processing'],'text':'Iron processed at the press.','createdAt':'2026-11-20T14:00:00Z'}
+        episode={'id':str(uuid.uuid4()),'scope':'a'*64,'kind':'thought','keywords':['minecraft:iron_ingot','processing'],'text':'Iron processed at the press.','createdAt':'2026-11-20T14:00:00Z','x':-120.5,'y':64.5,'z':340.5}
         assert post('/memories', episode)['ok']
         assert post('/memories', episode)['ok']
+        nearby=post('/nearby', {'scope':'a'*64,'x':-118.0,'y':64.5,'z':341.0,'radius':12.0,'topK':4})
+        assert len(nearby)==1 and nearby[0]['episode']['id']==episode['id'], f'Expected spatial hit, got {nearby}'
         other={**episode, 'id':str(uuid.uuid4()), 'scope':'b'*64, 'text':'Different world.'}
         post('/memories',other)
         query={'scope':'a'*64,'keywords':['minecraft:iron_ingot']+[f'noise_{i}' for i in range(999)],'topK':3}
@@ -50,9 +52,11 @@ with tempfile.TemporaryDirectory(prefix='qb2-nerve-test-') as directory:
         except urllib.error.HTTPError as error: assert error.code==403
         assert post('/delete', {'scope':'a'*64, 'id':episode['id']})['ok']
         assert post('/search',query)==[], 'Deleted episode still returned'
+        assert post('/nearby', {'scope':'a'*64,'x':-118.0,'y':64.5,'z':341.0,'radius':12.0,'topK':4})==[], 'Deleted episode still in spatial index'
         proc.terminate();proc.wait(timeout=10)
         proc=start()
         assert post('/search',query)==[], 'Deleted episode reappeared after bridge restart'
-        print('PASS: real NERVE write, idempotent retry, 1000-keyword search, scope isolation, authentication, validation, delete tombstones and restart persistence')
+        assert post('/nearby', {'scope':'a'*64,'x':-118.0,'y':64.5,'z':341.0,'radius':12.0,'topK':4})==[], 'Deleted episode reappeared in spatial index after restart'
+        print('PASS: real NERVE + SpatialGrid2D write, idempotent retry, 1000-keyword search, nearby radius query, scope isolation, authentication, validation, delete tombstones and restart persistence')
     finally:
         proc.terminate();proc.wait(timeout=10)

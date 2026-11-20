@@ -61,13 +61,38 @@ public final class CompanionRenderer {
     box(
         poses, vertices, -0.125f, -0.125f, -0.125f, 0.125f, 0.125f, 0.125f, 0.035f, 0.045f, 0.060f,
         1);
-    // Keep the sensor geometry in the same full-bright material pass as the body.
+    // Keep the sensor & edge geometry in the same full-bright material pass as the body.
     // Separate eyes/emissive passes are discarded by some Iris/Sodium pack pipelines.
     var light = vertices;
     float intensity = (float) (0.45 + settings.glow * frame.light() * 0.55);
-    float sr = session.apiBackoff ? intensity : intensity * 0.90f;
-    float sg = session.apiBackoff ? intensity * 0.70f : intensity * 0.97f;
-    float sb = session.apiBackoff ? intensity * 0.25f : intensity;
+    boolean thinking = "Thinking".equals(session.state);
+    boolean speaking = "Speaking".equals(session.state);
+    boolean errorVisual = session.apiBackoff || session.errorTintTicks > 0;
+    // State-reactive glowing edges: blue = idle, orange = thinking/request, cyan-white = speaking,
+    // reddish = API error/backoff.
+    float er, eg, eb;
+    if (errorVisual) {
+      er = intensity;
+      eg = intensity * 0.22f;
+      eb = intensity * 0.14f;
+    } else if (thinking) {
+      er = intensity;
+      eg = intensity * 0.54f;
+      eb = intensity * 0.10f;
+    } else if (speaking) {
+      er = intensity * 0.65f;
+      eg = intensity * 0.96f;
+      eb = intensity;
+    } else {
+      er = intensity * 0.22f;
+      eg = intensity * 0.68f;
+      eb = intensity;
+    }
+    renderEdges(poses, light, 0.1265f, 0.011f, er, eg, eb, 1.0f);
+
+    float sr = errorVisual ? intensity : thinking ? intensity : intensity * 0.90f;
+    float sg = errorVisual ? intensity * 0.35f : thinking ? intensity * 0.78f : intensity * 0.97f;
+    float sb = errorVisual ? intensity * 0.22f : thinking ? intensity * 0.40f : intensity;
     // Four equal sensor tiles form a technical array, without eyes, mouth or facial animation.
     for (float x : SENSOR_OFFSETS)
       for (float y : SENSOR_OFFSETS)
@@ -79,7 +104,7 @@ public final class CompanionRenderer {
             0.1251f,
             x + 0.022f,
             y + 0.022f,
-            0.126f,
+            0.127f,
             sr,
             sg,
             sb,
@@ -129,6 +154,25 @@ public final class CompanionRenderer {
         0.45f);
     buffers.endBatch(RenderType.lines());
     beamPose.popPose();
+  }
+
+  private static void renderEdges(
+      PoseStack p, VertexConsumer v, float h, float t, float r, float g, float b, float a) {
+    // 4 edges along X
+    box(p, v, -h, -h, -h, h, -h + t, -h + t, r, g, b, a);
+    box(p, v, -h, h - t, -h, h, h, -h + t, r, g, b, a);
+    box(p, v, -h, -h, h - t, h, -h + t, h, r, g, b, a);
+    box(p, v, -h, h - t, h - t, h, h, h, r, g, b, a);
+    // 4 edges along Y
+    box(p, v, -h, -h, -h, -h + t, h, -h + t, r, g, b, a);
+    box(p, v, h - t, -h, -h, h, h, -h + t, r, g, b, a);
+    box(p, v, -h, -h, h - t, -h + t, h, h, r, g, b, a);
+    box(p, v, h - t, -h, h - t, h, h, h, r, g, b, a);
+    // 4 edges along Z
+    box(p, v, -h, -h, -h, -h + t, -h + t, h, r, g, b, a);
+    box(p, v, h - t, -h, -h, h, -h + t, h, r, g, b, a);
+    box(p, v, -h, h - t, -h, -h + t, h, h, r, g, b, a);
+    box(p, v, h - t, h - t, -h, h, h, h, r, g, b, a);
   }
 
   private static void box(

@@ -133,9 +133,20 @@ public final class Mind implements AutoCloseable {
                       retrievalWorker.submit(
                           () -> memory.search(catalog, job.keywords(), job.settings().memoryTopK));
                 }
+                dev.qb2.companion.movement.Point playerPos = extractPlayerPos(job.context());
                 List<Episode> recalled = List.of();
+                List<NerveMemory.NearbyHit> nearbyHits = List.of();
                 try {
                   recalled = memory.search(job.scope(), job.keywords(), job.settings().memoryTopK);
+                  if (playerPos != null) {
+                    try {
+                      nearbyHits = memory.nearby(job.scope(), playerPos, 18.0, 4);
+                    } catch (InterruptedException e) {
+                      throw e;
+                    } catch (Exception ignored) {
+                      /* Spatial index is optional; never block cognition. */
+                    }
+                  }
                   memoryStatus = "connected";
                 } catch (InterruptedException e) {
                   if (knowledgeFuture != null) knowledgeFuture.cancel(true);
@@ -145,6 +156,21 @@ public final class Mind implements AutoCloseable {
                 }
                 var sections = new LinkedHashMap<>(job.context());
                 sections.put("memories", recalled);
+                if (!nearbyHits.isEmpty()) {
+                  sections.put(
+                      "nearbySpatial",
+                      nearbyHits.stream()
+                          .map(
+                              h ->
+                                  Map.of(
+                                      "kind",
+                                      h.episode().kind(),
+                                      "distanceBlocks",
+                                      h.distance(),
+                                      "text",
+                                      h.episode().text()))
+                          .toList());
+                }
                 knowledgeHits = 0;
                 if (knowledgeFuture != null) {
                   try {
@@ -177,8 +203,10 @@ public final class Mind implements AutoCloseable {
                 }
                 String context = new ContextBuilder().build(sections, job.settings().tokenBudget);
                 status = "thinking";
+                boolean ambient = !"direct address".equals(job.reason());
                 var model =
-                    new ApiLanguageModel(http, job.settings(), job.apiKey(), job.fallbackApiKey());
+                    new ApiLanguageModel(
+                        http, job.settings(), job.apiKey(), job.fallbackApiKey(), ambient);
                 String response = model.complete(context);
                 activeModel = model.lastUsedModel();
                 resetBackoff();
@@ -273,14 +301,23 @@ public final class Mind implements AutoCloseable {
             });
   }
 
+  private static dev.qb2.companion.movement.Point extractPlayerPos(Map<String, Object> context) {
+    Object p = context.get("player");
+    if (p instanceof Map<?, ?> map && map.get("position") instanceof dev.qb2.companion.movement.Point pt) {
+      return pt;
+    }
+    return null;
+  }
+
   private static Episode recollection(Job job, String kind, String text) {
     var keywords = new LinkedHashSet<>(dev.qb2.perception.Keywords.extract(text));
     keywords.addAll(job.keywords());
-    return Episode.create(
+    return Episode.createAt(
         job.scope(),
         kind,
         keywords.stream().filter(word -> word.length() <= 200).limit(1000).toList(),
-        text);
+        text,
+        extractPlayerPos(job.context()));
   }
 
   public void flush(Settings settings, String nerveKey) {

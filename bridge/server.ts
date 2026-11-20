@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 // Deliberately consumes the NERVE package entry point, never a copied search implementation.
 process.umask(0o077);
 const repo = resolve(process.env.QB2_NERVE_REPO ?? "/mnt/lfs/lfs/repos/nerve");
+const spatialRepo = resolve(process.env.QB2_SPATIAL_REPO ?? "/mnt/lfs/lfs/repos/spatial");
 const root = resolve(process.env.QB2_MEMORY_DIR ?? join(import.meta.dir, "data"));
 mkdirSync(join(root, "db"), {recursive: true});
 const lock=join(root,"bridge.lock");
@@ -31,9 +32,30 @@ try {
 }
 catch (error) { unlinkSync(lock);if(process.env.QB2_NERVE_DEBUG==="1") console.error(error);throw new Error("NERVE package/native library unavailable or recovery failed. Build nerve-core and check its data."); }
 Engine.setMode(2); // Validated native StrictAcid mode.
+type SpatialIndex = {
+    setMode(mode: number): void;
+    upsert(id: number, x: number, y: number): void;
+    remove(id: number): void;
+    queryRadius(x: number, y: number, radius: number): Uint32Array;
+    flushAll(): void;
+};
+let spatial: SpatialIndex | null = null;
+const SPATIAL_SPAN = 4096;
+const wrapCoord = (v: number) => ((v % SPATIAL_SPAN) + SPATIAL_SPAN) % SPATIAL_SPAN;
+try {
+    const libPath = join(spatialRepo, "crates/spatial-core/target/release/libspatial_core.so");
+    if (existsSync(libPath)) {
+        const spkg = await import(pathToFileURL(join(spatialRepo, "packages/spatial-bun/src/index.ts")).href);
+        const grid = new spkg.SpatialGrid2D(libPath, { dbDir: join(root, "spatial"), maxEntities: 524288, gridDim: 512, cellSize: 8.0 }) as SpatialIndex;
+        grid.setMode(2); // StrictAcid
+        spatial = grid;
+    }
+} catch (error) {
+    if (process.env.QB2_NERVE_DEBUG === "1") console.error("Spatial index unavailable:", error);
+}
 const token = process.env.QB2_NERVE_TOKEN ?? "";
 if(token.length<24) {unlinkSync(lock);throw new Error("Set QB2_NERVE_TOKEN to at least 24 random characters");}
-type Episode={id:string,scope:string,kind:string,keywords:string[],text:string,createdAt:string};
+type Episode={id:string,scope:string,kind:string,keywords:string[],text:string,createdAt:string,x?:number|null,y?:number|null,z?:number|null};
 const ids = new ArticleIds(root);
 const deletedFile = join(root, "deleted.json");
 const deleted = new Set<string>(
@@ -70,6 +92,10 @@ const server=Bun.serve({hostname:"127.0.0.1",port:Number(process.env.QB2_NERVE_P
                 if(!ids.allocate([e.id])) return new Response("Memory capacity reached",{status:507});
                 const id=ids.get(e.id);
                 Engine.upsertArticle(id,JSON.stringify(e),[...new Set(e.keywords.map(word=>e.scope+":"+word))]);
+                if(spatial && id < 524288 && typeof e.x==="number" && Number.isFinite(e.x) && typeof e.y==="number" && Number.isFinite(e.y) && typeof e.z==="number" && Number.isFinite(e.z)) {
+                    spatial.upsert(id, wrapCoord(e.x), wrapCoord(e.z));
+                    spatial.flushAll();
+                }
                 return Response.json({ok:true});
             }
             if(path==="/knowledge") {
@@ -103,10 +129,30 @@ const server=Bun.serve({hostname:"127.0.0.1",port:Number(process.env.QB2_NERVE_P
                     if(!deleted.has(data.id)) {
                         deleted.add(data.id);
                         excludedArticleIds.push(articleId);
+                        if(spatial && articleId < 524288) {
+                            spatial.remove(articleId);
+                            spatial.flushAll();
+                        }
                         saveDeleted();
                     }
                 }
                 return Response.json({ok:true});
+            }
+            if(path==="/nearby") {
+                if(typeof data.scope!=="string"||!/^[a-f0-9]{64}$/.test(data.scope)||typeof data.x!=="number"||!Number.isFinite(data.x)||typeof data.y!=="number"||!Number.isFinite(data.y)||typeof data.z!=="number"||!Number.isFinite(data.z)||typeof data.radius!=="number"||!Number.isFinite(data.radius)||data.radius<=0||data.radius>64||!Number.isInteger(data.topK)||data.topK<1||data.topK>20) return new Response("Invalid nearby query",{status:400});
+                if(!spatial) return Response.json([]);
+                const hits=spatial.queryRadius(wrapCoord(data.x),wrapCoord(data.z),data.radius);
+                const found:{episode:Episode,distance:number}[]=[];
+                for(let i=0;i<hits.length;i++) {
+                    const text=Engine.getArticleText(hits[i]);
+                    if(!text) continue;
+                    const e=JSON.parse(text) as Episode;
+                    if(e.scope!==data.scope||deleted.has(e.id)||typeof e.x!=="number"||typeof e.y!=="number"||typeof e.z!=="number") continue;
+                    const dist=Math.hypot(e.x-data.x,e.y-data.y,e.z-data.z);
+                    if(dist<=data.radius) found.push({episode:e,distance:Math.round(dist*10)/10});
+                }
+                found.sort((a,b)=>a.distance-b.distance);
+                return Response.json(found.slice(0,data.topK));
             }
             if(path==="/search") {
                 if(typeof data.scope!=="string"||!/^[a-f0-9]{64}$/.test(data.scope)||!Array.isArray(data.keywords)||data.keywords.length>1000||!data.keywords.every((w:unknown)=>typeof w==="string"&&w.length<=200)||!Number.isInteger(data.topK)||data.topK<1||data.topK>20) return new Response("Invalid search",{status:400});
@@ -129,7 +175,7 @@ const server=Bun.serve({hostname:"127.0.0.1",port:Number(process.env.QB2_NERVE_P
 });
 function shutdown(){
     server.stop(true);
-    try {ids.checkpoint();unlinkSync(lock);process.exit(0);}
+    try {spatial?.flushAll();ids.checkpoint();unlinkSync(lock);process.exit(0);}
     catch {console.error("Allocation metadata checkpoint failed; inspect the private memory directory before restarting.");process.exit(1);}
 }
 process.on("SIGTERM",shutdown);process.on("SIGINT",shutdown);

@@ -38,8 +38,48 @@ public final class NerveMemory {
     if (!batch.isEmpty()) http.post(endpoint + "/knowledge", key, false, json.toJson(batch), 25);
   }
 
+  public record NearbyHit(Episode episode, double distance) {}
+
   public void delete(String scope, String id) throws Exception {
     http.post(endpoint + "/delete", key, false, json.toJson(Map.of("scope", scope, "id", id)), 5);
+  }
+
+  public List<NearbyHit> nearby(
+      String scope, dev.qb2.companion.movement.Point pos, double radius, int topK)
+      throws Exception {
+    if (pos == null) return List.of();
+    var reply =
+        JsonParser.parseString(
+            http.post(
+                endpoint + "/nearby",
+                key,
+                false,
+                json.toJson(
+                    Map.of(
+                        "scope",
+                        scope,
+                        "x",
+                        pos.x(),
+                        "y",
+                        pos.y(),
+                        "z",
+                        pos.z(),
+                        "radius",
+                        radius,
+                        "topK",
+                        topK)),
+                5));
+    var out = new ArrayList<NearbyHit>();
+    for (var element : reply.getAsJsonArray()) {
+      var obj = element.getAsJsonObject();
+      var e = json.fromJson(obj.get("episode"), Episode.class);
+      double dist = obj.has("distance") ? obj.get("distance").getAsDouble() : 0.0;
+      if (e != null && scope.equals(e.scope()) && e.text() != null && e.text().length() <= 2000) {
+        out.add(new NearbyHit(e, dist));
+      }
+      if (out.size() >= topK) break;
+    }
+    return List.copyOf(out);
   }
 
   public List<Episode> search(String scope, List<String> words, int topK) throws Exception {

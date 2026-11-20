@@ -21,6 +21,7 @@ public final class SettingsScreen extends Screen {
   private final List<String> labels = new ArrayList<>();
   private int page;
   private int rows;
+  private int presetIndex;
   private boolean inspectorMode;
   private String searchQuery = "";
   private List<Episode> inspectorResults = List.of();
@@ -94,7 +95,7 @@ public final class SettingsScreen extends Screen {
                   page = Math.floorMod(page - 1, pages);
                   rebuildWidgets();
                 })
-            .bounds(left, height - 64, 34, 20)
+            .bounds(left, height - 64, 28, 20)
             .build());
     addRenderableWidget(
         Button.builder(
@@ -103,7 +104,13 @@ public final class SettingsScreen extends Screen {
                   page = (page + 1) % pages;
                   rebuildWidgets();
                 })
-            .bounds(left + 38, height - 64, 34, 20)
+            .bounds(left + 31, height - 64, 28, 20)
+            .build());
+    addRenderableWidget(
+        Button.builder(
+                Component.literal("Preset"),
+                b -> applyNextPreset())
+            .bounds(left + 62, height - 64, 54, 20)
             .build());
     addRenderableWidget(
         Button.builder(
@@ -113,7 +120,7 @@ public final class SettingsScreen extends Screen {
                   runMemorySearch();
                   rebuildWidgets();
                 })
-            .bounds(left + 76, height - 64, 78, 20)
+            .bounds(left + 119, height - 64, 68, 20)
             .build());
     addRenderableWidget(
         Button.builder(
@@ -125,7 +132,7 @@ public final class SettingsScreen extends Screen {
                           ? "Connection test queued; see the debug overlay in your world."
                           : controller.error;
                 })
-            .bounds(left + 158, height - 64, 132, 20)
+            .bounds(left + 190, height - 64, 100, 20)
             .build());
     addRenderableWidget(
         Button.builder(Component.translatable("screen.qb2.save"), b -> save())
@@ -182,6 +189,33 @@ public final class SettingsScreen extends Screen {
         Button.builder(Component.translatable("screen.qb2.close"), b -> onClose())
             .bounds(left + 148, height - 38, 142, 20)
             .build());
+  }
+
+  private void applyNextPreset() {
+    int p = presetIndex++ % 3;
+    if (p == 0) {
+      values.put("provider", "google");
+      values.put("endpoint", "https://generativelanguage.googleapis.com/v1beta");
+      values.put("model", "gemma-4-31b-it");
+      values.put("modelChain", "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-2.5-flash,gemini-2.5-flash-lite");
+      values.put("ambientModel", "gemma-4-26b-a4b-it");
+      message = "Preset applied: Google Smart Chain (Save to activate).";
+    } else if (p == 1) {
+      values.put("provider", "google");
+      values.put("endpoint", "https://generativelanguage.googleapis.com/v1beta");
+      values.put("model", "gemma-4-26b-a4b-it");
+      values.put("modelChain", "gemma-4-26b-a4b-it,gemini-2.5-flash,gemini-2.5-flash-lite");
+      values.put("ambientModel", "gemini-2.5-flash-lite");
+      message = "Preset applied: Google Fast (Save to activate).";
+    } else {
+      values.put("provider", "openai");
+      values.put("endpoint", "http://127.0.0.1:11434/v1");
+      values.put("model", "gemma3:12b");
+      values.put("modelChain", "gemma3:12b,gemma3:4b");
+      values.put("ambientModel", "gemma3:4b");
+      message = "Preset applied: Local Ollama (Save to activate).";
+    }
+    rebuildWidgets();
   }
 
   private void runMemorySearch() {
