@@ -13,6 +13,9 @@ public final class ContainerMemory {
   private static final int MAX_TRACKED = 64;
   private static final int MAX_ITEMS_PER_EPISODE = 24;
   private final LinkedHashMap<String, String> lastSignature = new LinkedHashMap<>();
+  private final LinkedHashMap<String, StoredSummary> summaries = new LinkedHashMap<>();
+
+  private record StoredSummary(Point pos, String text) {}
 
   public Optional<Episode> record(String scope, Point containerPos, InventorySensor.View view) {
     return record(scope, containerPos, view, null);
@@ -70,8 +73,11 @@ public final class ContainerMemory {
     if (signature.equals(lastSignature.get(posKey))) return Optional.empty();
 
     lastSignature.put(posKey, signature);
+    summaries.put(posKey, new StoredSummary(containerPos, summary.toString()));
     while (lastSignature.size() > MAX_TRACKED) {
-      lastSignature.remove(lastSignature.keySet().iterator().next());
+      String oldest = lastSignature.keySet().iterator().next();
+      lastSignature.remove(oldest);
+      summaries.remove(oldest);
     }
     return Optional.of(
         Episode.createAt(
@@ -83,7 +89,18 @@ public final class ContainerMemory {
             dimension));
   }
 
+  public List<String> lookupNear(Point center, double radius) {
+    if (center == null || summaries.isEmpty()) return List.of();
+    return summaries.values().stream()
+        .filter(s -> s.pos().distance(center) <= radius)
+        .sorted(Comparator.comparingDouble(s -> s.pos().distance(center)))
+        .limit(3)
+        .map(StoredSummary::text)
+        .toList();
+  }
+
   public void reset() {
     lastSignature.clear();
+    summaries.clear();
   }
 }

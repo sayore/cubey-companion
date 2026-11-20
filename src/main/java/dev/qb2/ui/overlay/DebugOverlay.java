@@ -98,6 +98,69 @@ public final class DebugOverlay {
         event.getGuiGraphics().drawCenteredString(mc.font, sub, cx, cy + 10, 0xFF9AC8DA);
       }
     }
+    // Feature #10: Create Wrench Assistant (live RPM / Overstressed / Blaze Burner heat!)
+    if (mc.player != null
+        && mc.level != null
+        && mc.screen == null
+        && mc.hitResult instanceof net.minecraft.world.phys.BlockHitResult bhr) {
+      var held = mc.player.getMainHandItem();
+      String heldId =
+          held.isEmpty()
+              ? ""
+              : net.minecraft.core.registries.BuiltInRegistries.ITEM.getKey(held.getItem()).toString();
+      if (heldId.contains("wrench")) {
+        var be = mc.level.getBlockEntity(bhr.getBlockPos());
+        if (be != null) {
+          try {
+            var tag = be.saveWithoutMetadata(mc.level.registryAccess());
+            String info = "";
+            int col = 0xFF9CEBFF;
+            if (tag.contains("OverStressed") && tag.getBoolean("OverStressed")) {
+              info = "⚠ ÜBERLASTET (Overstressed!)";
+              col = 0xFFFF6666;
+            } else if (tag.contains("Speed")) {
+              float rpm = tag.getFloat("Speed");
+              info =
+                  Math.abs(rpm) < 0.5f
+                      ? "⚙ 0 RPM (kein Antrieb)"
+                      : String.format(java.util.Locale.ROOT, "⚙ %.0f RPM (%s)", Math.abs(rpm), rpm > 0 ? "↻" : "↺");
+              col = Math.abs(rpm) < 0.5f ? 0xFFFFB855 : 0xFF55F5B0;
+            } else if (tag.contains("fuelLevel")) {
+              int fl = tag.getInt("fuelLevel");
+              info = fl <= 0 ? "🔥 Blaze Burner: Kalt" : "🔥 Blaze Burner: Aktiv (" + fl + ")";
+              col = fl <= 0 ? 0xFFFFAA55 : 0xFFFFD866;
+            }
+            if (!info.isBlank()) {
+              int sw = mc.getWindow().getGuiScaledWidth();
+              int sh = mc.getWindow().getGuiScaledHeight();
+              int cx = sw / 2;
+              int cy = sh / 2 + 16;
+              int tw = mc.font.width(info) + 10;
+              event.getGuiGraphics().fill(cx - tw / 2, cy - 2, cx + tw / 2, cy + 11, 0xCC0D1824);
+              event.getGuiGraphics().renderOutline(cx - tw / 2, cy - 2, tw, 13, col);
+              event.getGuiGraphics().drawCenteredString(mc.font, info, cx, cy, col);
+            }
+          } catch (Exception ignored) {
+          }
+        }
+      }
+    }
+    // Feature #20: Compact Cubey Equipment Status Badge next to the hotbar
+    if (mc.screen == null) {
+      var eq = CubeyInventoryOverlay.equippedStack();
+      if (!eq.isEmpty()) {
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int sh = mc.getWindow().getGuiScaledHeight();
+        int bx = sw / 2 + 98;
+        int by = sh - 21;
+        boolean pulse = session.combatActionTicks > 0;
+        var gg = event.getGuiGraphics();
+        gg.fill(bx, by, bx + 18, by + 18, pulse ? 0xDD3A2810 : 0xBB0D1622);
+        gg.renderOutline(bx, by, 18, 18, pulse ? 0xFFFFE066 : 0xCCDBA842);
+        gg.renderItem(eq, bx + 1, by + 1);
+        gg.renderItemDecorations(mc.font, eq, bx + 1, by + 1);
+      }
+    }
     // Subtle bottom-center HUD thought subtitle so you never have to spin the camera to read thoughts.
     if (!session.isSleeping()) {
       var thought = session.bubbles.activeThought(session.tick, settings.thoughts);

@@ -130,6 +130,10 @@ public final class CubeyServerHelper {
     int markedTargetId;
     long markedTargetUntilTick;
     long nextThrowBonkTick;
+    long nextLanternTick;
+    long nextFeedTick;
+    long nextMagnetTick;
+    long nextDepositTick;
   }
 
   private static final Map<UUID, PlayerRuntime> RUNTIME = new HashMap<>();
@@ -143,6 +147,7 @@ public final class CubeyServerHelper {
     CubeyNetwork.serverPackActionHandler = CubeyServerHelper::handlePackAction;
     CubeyNetwork.serverPackSlotClickHandler = CubeyServerHelper::handlePackSlotClick;
     CubeyNetwork.serverThrowHitMobHandler = CubeyServerHelper::handleThrowHitMob;
+    CubeyNetwork.serverGiftPlayerHandler = CubeyServerHelper::handleGiftPlayer;
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onServerTick);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onIncomingDamage);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerLogin);
@@ -305,6 +310,216 @@ public final class CubeyServerHelper {
         1.35f);
   }
 
+  /**
+   * Feature #16: Multiplayer Gift Delivery ("@cube bring das zu Alex!") — transfers the first
+   * non-empty stack from Cubey's 6 backpack slots to a nearby player's inventory.
+   */
+  private static void handleGiftPlayer(
+      ServerPlayer sender, CubeyNetwork.C2SGiftPlayerPayload payload) {
+    if (!sender.isAlive() || sender.isSpectator()) return;
+    if (!(sender.level() instanceof ServerLevel level)) return;
+    if (sender.getUUID().equals(payload.targetPlayerId())) return;
+    ServerPlayer target = level.getServer().getPlayerList().getPlayer(payload.targetPlayerId());
+    if (target == null || !target.isAlive() || target.level() != level) return;
+    if (target.distanceToSqr(sender) > 36.0 * 36.0) return;
+
+    CubeyPackStorage storage = CubeyPackStorage.get(sender.server);
+    CubeyPackStorage.PlayerPack pack = storage.getOrCreate(sender.getUUID());
+    int slotFound = -1;
+    for (int i = CubeyPackStorage.BACKPACK_START; i < CubeyPackStorage.TOTAL_SLOTS; i++) {
+      if (!pack.items.get(i).isEmpty()) {
+        slotFound = i;
+        break;
+      }
+    }
+    if (slotFound < 0) return;
+
+    ItemStack gift = pack.items.get(slotFound).copy();
+    String itemName = gift.getCount() + "x " + gift.getHoverName().getString();
+    String itemId = BuiltInRegistries.ITEM.getKey(gift.getItem()).toString();
+    if (!target.getInventory().add(gift)) return; // Target inventory full -> abort cleanly!
+
+    pack.items.set(slotFound, ItemStack.EMPTY);
+    storage.setDirty();
+    CubeyNetwork.sendPackSync(sender, pack.toSyncPayload());
+    CubeyNetwork.sendTaskVisual(
+        sender,
+        new CubeyNetwork.S2CTaskVisualPayload(
+            "gift", target.getX(), target.getY() + 1.5, target.getZ(), itemId, 45));
+    target.sendSystemMessage(
+        net.minecraft.network.chat.Component.literal(
+            "🎁 Cubey von " + sender.getGameProfile().getName() + " hat dir " + itemName + " gebracht!"));
+    sender.sendSystemMessage(
+        net.minecraft.network.chat.Component.literal(
+            "🎁 Cubey hat " + itemName + " an " + target.getGameProfile().getName() + " übergeben!"));
+    level.playSound(
+        null, target.blockPosition(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 0.5f, 1.3f);
+  }
+
+  /** Feature #6: Lantern / Soul Lantern in Equipment Slot -> subtle Night Vision in dark caves! */
+  private static void tryLanternGlow(
+      ServerLevel level, ServerPlayer player, CubeyPackStorage.PlayerPack pack) {
+    ItemStack eq = pack.equipment();
+    if (!eq.is(Items.LANTERN) && !eq.is(Items.SOUL_LANTERN)) return;
+    BlockPos feet = player.blockPosition();
+    if (level.getBrightness(LightLayer.BLOCK, feet) > 3
+        || (level.getBrightness(LightLayer.SKY, feet) > 4 && level.isDay())) {
+      return;
+    }
+    player.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, 280, 0, true, false, true));
+    level.sendParticles(
+        eq.is(Items.SOUL_LANTERN) ? ParticleTypes.SOUL_FIRE_FLAME : ParticleTypes.FLAME,
+        player.getX(),
+        player.getY() + 1.8,
+        player.getZ(),
+        1,
+        0.2,
+        0.1,
+        0.2,
+        0.005);
+  }
+
+  /** Feature #7: Emergency Food Feeder — feeds player when hunger <= 6 using food in backpack! */
+  private static void tryEmergencyFeed(
+      ServerLevel level,
+      ServerPlayer player,
+      CubeyPackStorage storage,
+      CubeyPackStorage.PlayerPack pack,
+      PlayerRuntime rt,
+      long tick) {
+    if (player.getFoodData().getFoodLevel() > 6) return;
+    for (int i = CubeyPackStorage.BACKPACK_START; i < CubeyPackStorage.TOTAL_SLOTS; i++) {
+      ItemStack st = pack.items.get(i);
+      if (st.isEmpty()) continue;
+      var food = st.getFoodProperties(player);
+      if (food == null || food.nutrition() <= 0) continue;
+      // Avoid feeding suspicious/harmful food like rotten flesh or spider eyes
+      if (st.is(Items.ROTTEN_FLESH) || st.is(Items.SPIDER_EYE) || st.is(Items.PUFFERFISH)) continue;
+      String foodId = BuiltInRegistries.ITEM.getKey(st.getItem()).toString();
+      st.shrink(1);
+      if (st.isEmpty()) pack.items.set(i, ItemStack.EMPTY);
+      player.getFoodData().eat(food);
+      rt.nextFeedTick = tick + 600; // 30s cooldown
+      storage.setDirty();
+      CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
+      CubeyNetwork.sendTaskVisual(
+          player,
+          new CubeyNetwork.S2CTaskVisualPayload(
+              "feed", player.getX(), player.getY() + 1.5, player.getZ(), foodId, 24));
+      level.playSound(
+          null, player.blockPosition(), SoundEvents.GENERIC_EAT, SoundSource.PLAYERS, 0.7f, 1.1f);
+      return;
+    }
+  }
+
+  /** Feature #8: Stray Item Magnet — collects missed drops (2.2..6.5 blocks) ONLY if pack fits! */
+  private static void tryPickupStrayItem(
+      ServerLevel level,
+      ServerPlayer player,
+      CubeyPackStorage storage,
+      CubeyPackStorage.PlayerPack pack) {
+    if (player.isCrouching()) return;
+    AABB box = player.getBoundingBox().inflate(6.5, 2.5, 6.5);
+    for (var itemEnt :
+        level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, box)) {
+      if (!itemEnt.isAlive() || itemEnt.hasPickUpDelay() || itemEnt.getAge() < 25) continue;
+      double d2 = itemEnt.distanceToSqr(player);
+      if (d2 < 2.2 * 2.2) continue; // Let the player pick up close items normally
+      ItemStack st = itemEnt.getItem();
+      if (st.isEmpty() || !pack.canFitAllInBackpack(List.of(st))) continue;
+      String id = BuiltInRegistries.ITEM.getKey(st.getItem()).toString();
+      pack.insertIntoBackpack(st.copy());
+      itemEnt.discard();
+      storage.setDirty();
+      CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
+      CubeyNetwork.sendTaskVisual(
+          player,
+          new CubeyNetwork.S2CTaskVisualPayload(
+              "magnet", itemEnt.getX(), itemEnt.getY() + 0.35, itemEnt.getZ(), id, 22));
+      level.playSound(
+          null, itemEnt.blockPosition(), SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.45f, 1.4f);
+      return;
+    }
+  }
+
+  /**
+   * Feature #9: Smart Deposit — when Cubey's 6-slot backpack is nearly full (>=5 slots used),
+   * deposits a matching stack into a nearby Chest/Barrel that already stores that same item!
+   */
+  private static void tryDepositToMatchingContainer(
+      ServerLevel level,
+      ServerPlayer player,
+      CubeyPackStorage storage,
+      CubeyPackStorage.PlayerPack pack) {
+    int usedSlots = 0;
+    for (int i = CubeyPackStorage.BACKPACK_START; i < CubeyPackStorage.TOTAL_SLOTS; i++) {
+      if (!pack.items.get(i).isEmpty()) usedSlots++;
+    }
+    if (usedSlots < 5) return;
+
+    BlockPos origin = player.blockPosition();
+    BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+    for (int dx = -5; dx <= 5; dx++) {
+      for (int dy = -2; dy <= 2; dy++) {
+        for (int dz = -5; dz <= 5; dz++) {
+          cursor.set(origin.getX() + dx, origin.getY() + dy, origin.getZ() + dz);
+          if (!(level.getBlockEntity(cursor) instanceof net.minecraft.world.Container cont)) {
+            continue;
+          }
+          // Check each backpack slot for a matching item already present in this chest/barrel
+          for (int s = CubeyPackStorage.BACKPACK_START; s < CubeyPackStorage.TOTAL_SLOTS; s++) {
+            ItemStack st = pack.items.get(s);
+            if (st.isEmpty()) continue;
+            boolean chestHasType = false;
+            for (int c = 0; c < cont.getContainerSize(); c++) {
+              if (ItemStack.isSameItemSameComponents(cont.getItem(c), st)) {
+                chestHasType = true;
+                break;
+              }
+            }
+            if (!chestHasType) continue;
+            // Insert into matching or empty slot of chest
+            ItemStack rem = st.copy();
+            for (int c = 0; c < cont.getContainerSize() && !rem.isEmpty(); c++) {
+              ItemStack cs = cont.getItem(c);
+              if (!cs.isEmpty()
+                  && ItemStack.isSameItemSameComponents(cs, rem)
+                  && cs.getCount() < cs.getMaxStackSize()) {
+                int move = Math.min(rem.getCount(), cs.getMaxStackSize() - cs.getCount());
+                cs.grow(move);
+                rem.shrink(move);
+              }
+            }
+            for (int c = 0; c < cont.getContainerSize() && !rem.isEmpty(); c++) {
+              if (cont.getItem(c).isEmpty() && cont.canPlaceItem(c, rem)) {
+                cont.setItem(c, rem.split(rem.getCount()));
+              }
+            }
+            if (rem.getCount() < st.getCount()) {
+              String id = BuiltInRegistries.ITEM.getKey(st.getItem()).toString();
+              pack.items.set(s, rem.isEmpty() ? ItemStack.EMPTY : rem);
+              cont.setChanged();
+              storage.setDirty();
+              CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
+              CubeyNetwork.sendTaskVisual(
+                  player,
+                  new CubeyNetwork.S2CTaskVisualPayload(
+                      "deposit",
+                      cursor.getX() + 0.5,
+                      cursor.getY() + 0.9,
+                      cursor.getZ() + 0.5,
+                      id,
+                      28));
+              level.playSound(
+                  null, cursor, SoundEvents.BARREL_CLOSE, SoundSource.BLOCKS, 0.35f, 1.35f);
+              return;
+            }
+          }
+        }
+      }
+    }
+  }
+
   private static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
     if (!(event.getEntity() instanceof ServerPlayer player)) return;
     syncPack(player);
@@ -361,6 +576,26 @@ public final class CubeyServerHelper {
       if (tick >= rt.nextTorchTick && pack.flagEnabled(CubeyPackStorage.FLAG_TORCH)) {
         rt.nextTorchTick = tick + 30;
         tryPlaceTorch(level, player, storage, pack, rt, tick);
+      }
+      if (tick >= rt.nextLanternTick) {
+        rt.nextLanternTick = tick + 80;
+        tryLanternGlow(level, player, pack);
+      }
+      if (tick >= rt.nextFeedTick) {
+        rt.nextFeedTick = tick + 40;
+        tryEmergencyFeed(level, player, storage, pack, rt, tick);
+      }
+      if (tick >= rt.nextMagnetTick
+          && rt.activeCraft == null
+          && pack.flagEnabled(CubeyPackStorage.FLAG_HARVEST)) {
+        rt.nextMagnetTick = tick + 35;
+        tryPickupStrayItem(level, player, storage, pack);
+      }
+      if (tick >= rt.nextDepositTick
+          && rt.activeCraft == null
+          && pack.flagEnabled(CubeyPackStorage.FLAG_HARVEST)) {
+        rt.nextDepositTick = tick + 120;
+        tryDepositToMatchingContainer(level, player, storage, pack);
       }
     }
   }

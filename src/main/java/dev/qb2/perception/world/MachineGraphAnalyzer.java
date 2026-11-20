@@ -189,6 +189,7 @@ public final class MachineGraphAnalyzer {
     Map<String, Integer> counts = new LinkedHashMap<>();
     Set<String> flows = new LinkedHashSet<>();
     Set<String> contents = new LinkedHashSet<>();
+    Set<String> diagnostics = new LinkedHashSet<>();
 
     Set<BlockPos> visited = new HashSet<>();
     ArrayDeque<BlockPos> queue = new ArrayDeque<>();
@@ -202,17 +203,17 @@ public final class MachineGraphAnalyzer {
       String shortId = shortName(id);
       counts.merge(id, 1, Integer::sum);
 
-      // 1. Inspect client-synced BlockEntity contents (Depot HeldItem, Basin items, fluids, heat!)
+      // 1. Inspect client-synced BlockEntity contents & bottleneck diagnostics!
       BlockEntity be = level.getBlockEntity(cur);
       if (be != null && contents.size() < 10) {
-        extractBlockEntityClues(level, be, shortId, contents);
+        extractBlockEntityClues(level, be, shortId, contents, diagnostics);
       }
 
       // 2. Detect Create Fan / Air-Stream through Catalyst -> Depot/Belt!
       if (id.contains("fan")) {
         Direction facing = extractFacing(st);
         if (facing != null) {
-          detectFanProcessingLine(level, cur, facing, flows, visited, queue, start);
+          detectFanProcessingLine(level, cur, facing, flows, diagnostics, visited, queue, start);
         }
       }
 
@@ -270,6 +271,9 @@ public final class MachineGraphAnalyzer {
     if (!contentList.isEmpty()) {
       sb.append(" | Live contents/state: ").append(String.join("; ", contentList));
     }
+    if (!diagnostics.isEmpty()) {
+      sb.append(" | Diagnostics: ").append(String.join("; ", diagnostics.stream().limit(5).toList()));
+    }
     return new MachineGraph(
         anchorId, centroid, visited.size(), counts, flowList, contentList, sb.toString());
   }
@@ -279,6 +283,7 @@ public final class MachineGraphAnalyzer {
       BlockPos fanPos,
       Direction facing,
       Set<String> flows,
+      Set<String> diagnostics,
       Set<BlockPos> visited,
       ArrayDeque<BlockPos> queue,
       BlockPos origin) {
@@ -304,6 +309,9 @@ public final class MachineGraphAnalyzer {
                 ? "encased_fan --(" + catalyst + ")--> " + shortName(id)
                 : "encased_fan --> " + shortName(id);
         flows.add(edge);
+        if (catalyst == null) {
+          diagnostics.add("encased_fan aiming at " + shortName(id) + " has no water/lava/fire catalyst");
+        }
         if (!visited.contains(p) && visited.size() < MAX_BLOCKS && p.distManhattan(origin) <= MAX_RADIUS * 2) {
           visited.add(p);
           queue.add(p);
@@ -345,7 +353,11 @@ public final class MachineGraphAnalyzer {
   }
 
   private static void extractBlockEntityClues(
-      ClientLevel level, BlockEntity be, String shortBlock, Set<String> out) {
+      ClientLevel level,
+      BlockEntity be,
+      String shortBlock,
+      Set<String> out,
+      Set<String> diagnostics) {
     try {
       CompoundTag tag = be.saveWithoutMetadata(level.registryAccess());
       // Create Depot / Funnel / Belt held item
@@ -381,10 +393,21 @@ public final class MachineGraphAnalyzer {
         if (amt == 0) amt = tank.getInt("Amount");
         if (!fluid.isBlank() && amt > 0) out.add(shortBlock + " fluid=" + fluid + " (" + amt + "mB)");
       }
-      // Create Kinetic Speed (RPM)
+      // Create Kinetic Speed (RPM) & Stress/Unpowered Diagnostics!
       if (tag.contains("Speed")) {
         float rpm = tag.getFloat("Speed");
-        if (Math.abs(rpm) > 0.5f) out.add(shortBlock + " speed=" + Math.round(Math.abs(rpm)) + "RPM");
+        if (Math.abs(rpm) > 0.5f) {
+          out.add(shortBlock + " speed=" + Math.round(Math.abs(rpm)) + "RPM");
+        } else {
+          diagnostics.add(shortBlock + " is unpowered (0 RPM)");
+        }
+      }
+      if (tag.contains("OverStressed") && tag.getBoolean("OverStressed")) {
+        diagnostics.add(shortBlock + " is OVERSTRESSED!");
+      }
+      if (shortBlock.contains("blaze_burner") && tag.contains("fuelLevel")) {
+        int fl = tag.getInt("fuelLevel");
+        if (fl <= 0) diagnostics.add("blaze_burner has no fuel (unheated)");
       }
     } catch (Exception ignored) {
     }

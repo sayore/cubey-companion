@@ -151,6 +151,10 @@ public record InferenceSnapshot(
             res.diff() != null && !res.diff().isBlank()
                 ? graph.summary() + " | Changed since last seen: " + res.diff()
                 : graph.summary();
+        var nearChests = session.containerMemory.lookupNear(graph.centroid(), 5.5);
+        if (!nearChests.isEmpty()) {
+          machineGraphSummary += " | Connected/nearby opened chests: " + String.join("; ", nearChests);
+        }
         if (res.episode() != null) machineGraphEpisode = res.episode();
         session.lastMachineGraph = machineGraphSummary;
         session.lastMachineGraphTick = session.tick;

@@ -176,7 +176,9 @@ public final class CatalogReader {
         String outName = out.getHoverName().getString().toLowerCase(Locale.ROOT);
         for (String t : terms) {
           if (outId.contains(t) || outName.contains(t)) {
-            results.add(reader.recipe(holder).text());
+            String base = reader.recipe(holder).text();
+            String check = missingIngredientsCheck(mc, holder.value());
+            results.add(check.isBlank() ? base : (base + " | " + check));
             break;
           }
         }
@@ -185,5 +187,38 @@ public final class CatalogReader {
       }
     }
     return List.copyOf(results);
+  }
+
+  /** Step-by-step recipe assistant: compares recipe ingredients against the player's inventory. */
+  private static String missingIngredientsCheck(
+      Minecraft mc, net.minecraft.world.item.crafting.Recipe<?> recipe) {
+    if (mc == null || mc.player == null || recipe == null) return "";
+    var ingredients = recipe.getIngredients();
+    if (ingredients.isEmpty()) return "";
+    Map<String, Integer> needed = new LinkedHashMap<>();
+    Map<String, net.minecraft.world.item.crafting.Ingredient> sampleIng = new LinkedHashMap<>();
+    for (var ing : ingredients) {
+      if (ing.isEmpty()) continue;
+      var items = ing.getItems();
+      if (items.length == 0) continue;
+      String name = items[0].getHoverName().getString();
+      needed.merge(name, 1, Integer::sum);
+      sampleIng.putIfAbsent(name, ing);
+    }
+    if (needed.isEmpty()) return "";
+    List<String> parts = new ArrayList<>();
+    for (var e : needed.entrySet()) {
+      var ing = sampleIng.get(e.getKey());
+      int have = 0;
+      for (int i = 0; i < mc.player.getInventory().getContainerSize(); i++) {
+        var st = mc.player.getInventory().getItem(i);
+        if (!st.isEmpty() && ing.test(st)) have += st.getCount();
+      }
+      int req = e.getValue();
+      if (have >= req) parts.add("✓" + req + "x " + e.getKey());
+      else parts.add("✗missing " + (req - have) + "x " + e.getKey());
+      if (parts.size() >= 6) break;
+    }
+    return "Inventory check: " + String.join(", ", parts);
   }
 }

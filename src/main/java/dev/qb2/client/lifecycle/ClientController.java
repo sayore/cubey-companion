@@ -62,6 +62,7 @@ public final class ClientController {
   private String lastDirectPrompt = "";
   private boolean wasPlayerIdle;
   private boolean packSyncRequested;
+  private long lastNoteEchoTick = -1000;
   private long lastAmbientFallbackTick = -1000;
   private final dev.qb2.diagnostics.ClientSmokeProbe smoke =
       new dev.qb2.diagnostics.ClientSmokeProbe();
@@ -103,6 +104,7 @@ public final class ClientController {
     NeoForge.EVENT_BUS.addListener(this::receivedChat);
     NeoForge.EVENT_BUS.addListener(this::outgoingChat);
     NeoForge.EVENT_BUS.addListener(this::interaction);
+    NeoForge.EVENT_BUS.addListener(this::onPlaySound);
     NeoForge.EVENT_BUS.addListener(
         (RenderLevelStageEvent e) -> {
           if (session != null && !configuration.settings().paused)
@@ -314,6 +316,7 @@ public final class ClientController {
             sVoice.whisperEndpoint,
             sVoice.whisperLanguage,
             configuration.nerveKey(),
+            buildHotbarVocabHint(),
             res ->
                 mc.execute(
                     () -> {
@@ -330,6 +333,7 @@ public final class ClientController {
                       mc.gui
                           .getChat()
                           .addMessage(Component.literal("[Du (Voice) → QB2] " + res.text()));
+                      if (handleInstantDirectCommand(res.text())) return;
                       enqueue(new Trigger("direct address", 0, res.text()));
                     }));
       }
@@ -477,6 +481,7 @@ public final class ClientController {
                 ? lastInteractedBlock
                 : dev.qb2.perception.world.WorldSensor.point(player.position());
         String dim = level.dimension().location().toString();
+        session.containerMemory.record(scope, pos, inventory, dim);
         containerMemory.record(scope, pos, inventory, dim).ifPresent(this::queueBackgroundEpisode);
       }
       if (lastInventory != null && !lastInventory.equals(inventory)) {
@@ -551,6 +556,22 @@ public final class ClientController {
 
   private void receivedChat(ClientChatReceivedEvent event) {
     if (session == null || event.isCanceled()) return;
+    // Feature #15: Zero-token celebratory spiral on player advancements!
+    if (player != null
+        && event.getMessage().getContents()
+            instanceof net.minecraft.network.chat.contents.TranslatableContents tc
+        && tc.getKey().startsWith("chat.type.advancement.")
+        && event.getMessage().getString().contains(player.getGameProfile().getName())) {
+      session.wakeUp();
+      session.situational.celebrateTicks = 60;
+      session.situational.barrelRollTicks = 40;
+      session.bubbles.emote("★ Glückwunsch!", session.tick);
+      audio.play(
+          mc,
+          configuration.settings(),
+          session.motion.position(),
+          dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
+    }
     String raw = event.getMessage().getString();
     String text = raw.substring(0, Math.min(1000, raw.length()));
     if (text.contains("[QB2]")) return;
@@ -559,6 +580,119 @@ public final class ClientController {
             ? ChatHistory.Source.PLAYER
             : ChatHistory.Source.SERVER;
     chat(source, text);
+  }
+
+  /** Feature #13: Musical Noteblock Echo — Cubey hums back nearby noteblocks! */
+  private void onPlaySound(net.neoforged.neoforge.client.event.sound.PlaySoundEvent event) {
+    if (session == null || player == null || configuration.settings().paused || session.isSleeping())
+      return;
+    var sound = event.getSound();
+    if (sound == null) return;
+    if (!sound.getLocation().getPath().startsWith("block.note_block.")) return;
+    if (session.tick - lastNoteEchoTick < 36) return;
+    double d2 =
+        player.distanceToSqr(sound.getX(), sound.getY(), sound.getZ());
+    if (d2 > 12.0 * 12.0) return;
+    lastNoteEchoTick = session.tick;
+    float pitch = Math.clamp(sound.getPitch(), 0.55f, 1.95f);
+    session.bubbles.emote("♪", session.tick);
+    audio.play(
+        mc,
+        configuration.settings(),
+        session.motion.position(),
+        dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY,
+        pitch);
+  }
+
+  /** Feature #17: Zero-Token Quick Emote Wheel trigger (broadcasts to multiplayer peers!). */
+  public void triggerQuickEmote(String emote) {
+    if (session == null || emote == null || emote.isBlank()) return;
+    session.wakeUp();
+    session.situational.greetingTicks = 24;
+    session.bubbles.emote(emote, session.tick);
+    session.pendingSyncSpeech = emote;
+    audio.play(
+        mc,
+        configuration.settings(),
+        session.motion.position(),
+        "💤".equals(emote)
+            ? dev.qb2.rendering.audio.CompanionAudio.Cue.SLEEP
+            : dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
+  }
+
+  private String buildHotbarVocabHint() {
+    if (player == null) return "";
+    var names = new LinkedHashSet<String>();
+    for (int i = 0; i < 9; i++) {
+      var st = player.getInventory().getItem(i);
+      if (!st.isEmpty()) names.add(st.getHoverName().getString());
+    }
+    return String.join(", ", names);
+  }
+
+  /**
+   * Handles zero-token instant commands: Feature #4 (Base Zone save & guide) and Feature #16
+   * (Multiplayer Gift delivery: "@cube bring das zu <Spieler>").
+   */
+  private boolean handleInstantDirectCommand(String rawText) {
+    if (session == null || player == null || level == null || rawText == null) return false;
+    String clean =
+        rawText.replaceAll("(?i)@(cube|qb|qb2)\\b", "").replaceAll("^[,.:\\s]+", "").trim();
+    String lower = clean.toLowerCase(Locale.ROOT);
+
+    // Feature #4a: Save current position as named Base Zone
+    var saveMatcher =
+        java.util.regex.Pattern.compile(
+                "(?i)(?:merk(?:e)? dir (?:das hier|diesen ort) als|speicher(?:e)? (?:das hier|diesen ort) als|remember this (?:place|spot) as|save zone)\\s+([\\p{L}\\p{N}_\\- ]{2,28})")
+            .matcher(clean);
+    if (saveMatcher.find()) {
+      String zoneName = saveMatcher.group(1).replaceAll("[.!?]+$", "").trim();
+      Point pos = dev.qb2.perception.world.WorldSensor.point(player.position());
+      String dim = level.dimension().location().toString();
+      session.baseZones.put(zoneName.toLowerCase(Locale.ROOT), pos);
+      queueBackgroundEpisode(
+          Episode.createAt(
+              scope,
+              "base_zone",
+              List.of("zone", "base", "waypoint", zoneName.toLowerCase(Locale.ROOT)),
+              "Base zone '" + zoneName + "' at " + (int) pos.x() + "," + (int) pos.y() + "," + (int) pos.z(),
+              pos,
+              dim));
+      session.bubbles.emote("📍 " + zoneName, session.tick);
+      speakLocally("Gemerkt! Ich habe diesen Ort als '" + zoneName + "' gespeichert.");
+      return true;
+    }
+
+    // Feature #4b: Guide to saved Base Zone
+    var guideMatcher =
+        java.util.regex.Pattern.compile(
+                "(?i)(?:führ(?:e)? mich zu[mr]?|zeig(?:e)? mir (?:den weg zu[mr]?|das|die|den)|guide me to)\\s+([\\p{L}\\p{N}_\\- ]{2,28})")
+            .matcher(clean);
+    if (guideMatcher.find()) {
+      String targetName = guideMatcher.group(1).replaceAll("[.!?]+$", "").trim();
+      Point pos = session.baseZones.get(targetName.toLowerCase(Locale.ROOT));
+      if (pos != null) {
+        session.startGuiding(pos, targetName);
+        speakLocally("Folge mir — ich führe dich zu '" + targetName + "'!");
+        return true;
+      }
+    }
+
+    // Feature #16: Multiplayer Gift Delivery ("bring das zu <Spieler>" / "gib das <Spieler>")
+    if ((lower.contains("bring") || lower.contains("gib ") || lower.contains("deliver"))
+        && mc.getConnection() != null
+        && mc.getConnection().hasChannel(dev.qb2.network.CubeyNetwork.C2SGiftPlayerPayload.TYPE)) {
+      for (var other : level.players()) {
+        if (other == player || !other.isAlive()) continue;
+        String otherName = other.getGameProfile().getName();
+        if (lower.contains(otherName.toLowerCase(Locale.ROOT))) {
+          net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+              new dev.qb2.network.CubeyNetwork.C2SGiftPlayerPayload(other.getUUID()));
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   private void outgoingChat(ClientChatEvent event) {
@@ -575,6 +709,7 @@ public final class ClientController {
       lastDirectConvoTick = session.tick;
       lastDirectPrompt = text;
       mc.gui.getChat().addMessage(Component.literal("[You → QB2] " + text));
+      if (handleInstantDirectCommand(text)) return;
       if (activeFollowUp) {
         session.wakeUp();
         session.markPlayerActive();

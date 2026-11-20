@@ -104,6 +104,15 @@ public final class VoiceInput implements AutoCloseable {
 
   public synchronized void stopAndTranscribe(
       String endpoint, String language, String bearerToken, Consumer<Result> callback) {
+    stopAndTranscribe(endpoint, language, bearerToken, "", callback);
+  }
+
+  public synchronized void stopAndTranscribe(
+      String endpoint,
+      String language,
+      String bearerToken,
+      String vocabHint,
+      Consumer<Result> callback) {
     if (!recording) return;
     recording = false;
     TargetDataLine line = activeLine;
@@ -134,6 +143,10 @@ public final class VoiceInput implements AutoCloseable {
                     : URLEncoder.encode(language.trim(), StandardCharsets.UTF_8);
             String targetUrl =
                 endpoint.contains("?") ? endpoint + "&lang=" + lang : endpoint + "?lang=" + lang;
+            if (vocabHint != null && !vocabHint.isBlank()) {
+              String trimmedHint = vocabHint.length() > 160 ? vocabHint.substring(0, 160) : vocabHint;
+              targetUrl += "&hint=" + URLEncoder.encode(trimmedHint, StandardCharsets.UTF_8);
+            }
             dev.qb2.inference.HttpTransport.validateEndpoint(endpoint);
             HttpRequest.Builder req =
                 HttpRequest.newBuilder(URI.create(targetUrl))

@@ -16,6 +16,7 @@ public final class ToolRegistry {
       Set.of(
           "inspect_details",
           "inspect_machine_graph",
+          "scout_block",
           "scan_area",
           "check_inventory",
           "search_memory",
@@ -56,7 +57,7 @@ public final class ToolRegistry {
           snap.areaScan().isBlank()
               ? "No notable non-terrain blocks found nearby."
               : snap.areaScan();
-      case "inspect_machine_graph" ->
+      case "inspect_machine_graph", "scout_block" ->
           snap.machineGraphSummary().isBlank()
               ? "No connected machine or logistics assembly detected at the current focus."
               : snap.machineGraphSummary();

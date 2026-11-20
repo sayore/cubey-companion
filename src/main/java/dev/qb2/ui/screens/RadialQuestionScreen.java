@@ -78,8 +78,25 @@ public final class RadialQuestionScreen extends Screen {
     }
   }
 
+  private static final List<String> QUICK_EMOTES = List.of("♥", "?!", "👋", "🎉", "💤");
+
   @Override
   public boolean mouseClicked(double mouseX, double mouseY, int button) {
+    if (button == 0) {
+      int cx = width / 2;
+      int ey = height / 2 + 102;
+      int pillW = 28;
+      int startX = cx - (QUICK_EMOTES.size() * (pillW + 4)) / 2;
+      for (int i = 0; i < QUICK_EMOTES.size(); i++) {
+        int px = startX + i * (pillW + 4);
+        if (mouseX >= px && mouseX <= px + pillW && mouseY >= ey && mouseY <= ey + 18) {
+          String em = QUICK_EMOTES.get(i);
+          onClose();
+          controller.triggerQuickEmote(em);
+          return true;
+        }
+      }
+    }
     updateHover(mouseX, mouseY);
     if (button == 0) {
       confirmAndClose();
@@ -126,6 +143,18 @@ public final class RadialQuestionScreen extends Screen {
         cx,
         cy + 3,
         0xFF88BCD8);
+
+    // Zero-Token Quick Emote Bar right below the radial wheel (synced to multiplayer!)
+    int ey = cy + 102;
+    int pillW = 28;
+    int startX = cx - (QUICK_EMOTES.size() * (pillW + 4)) / 2;
+    for (int i = 0; i < QUICK_EMOTES.size(); i++) {
+      int px = startX + i * (pillW + 4);
+      boolean eh = mouseX >= px && mouseX <= px + pillW && mouseY >= ey && mouseY <= ey + 18;
+      g.fill(px, ey, px + pillW, ey + 18, eh ? 0xEE1A455C : 0xCC0D1824);
+      g.renderOutline(px, ey, pillW, 18, eh ? 0xFF66EEFF : 0xAA3A7898);
+      g.drawCenteredString(font, QUICK_EMOTES.get(i), px + pillW / 2, ey + 5, 0xFFFFFFFF);
+    }
 
     double radiusX = 112.0;
     double radiusY = 74.0;

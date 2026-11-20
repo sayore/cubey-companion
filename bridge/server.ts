@@ -100,7 +100,8 @@ const server=Bun.serve({hostname:"127.0.0.1",port:Number(process.env.QB2_NERVE_P
             const tmpWav = join(root, `ptt-${Date.now()}-${Math.random().toString(36).slice(2,8)}.wav`);
             try {
                 writeFileSync(tmpWav, wavBytes, { mode: 0o600 });
-                const whisperPrompt = "Minecraft, Craftoria, Cubey, Create, Crushing Wheel, Crusher, Encased Fan, Depot, Brass Funnel, Cogwheel, AE2, Applied Energistics, Mekanism, Farmer's Delight, Waystones, Ars Nouveau, ComputerCraft, Smite, Redstone.";
+                const extraHint = (url.searchParams.get("hint") || "").replace(/[^a-zA-Z0-9äöüÄÖÜß, .'-]/g, "").slice(0, 160);
+                const whisperPrompt = "Minecraft, Craftoria, Cubey, Create, Crushing Wheel, Crusher, Encased Fan, Depot, Brass Funnel, Cogwheel, AE2, Applied Energistics, Mekanism, Farmer's Delight, Waystones, Ars Nouveau, ComputerCraft, Smite, Redstone." + (extraHint ? " " + extraHint : "");
                 const proc = Bun.spawn([whisperBin, "-m", whisperModel, "-l", lang, "--prompt", whisperPrompt, "-t", "4", "-nt", "-np", "-f", tmpWav], {
                     stdout: "pipe",
                     stderr: "pipe"

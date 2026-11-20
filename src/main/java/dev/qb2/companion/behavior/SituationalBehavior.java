@@ -64,11 +64,16 @@ public final class SituationalBehavior {
   public int magicHelixTicks;
   public int stretchFidgetTicks;
   public int juggleFidgetTicks;
+  public int dizzyTicks;
+  public boolean thunderHide;
   public boolean cookingNear;
   public String pendingEmote = "";
   private long lastLavaWarnTick = -1000;
   private long lastCraftoriaEmoteTick = -1000;
   private long lastFidgetTick = -1000;
+  private long lastBiomeEmoteTick = -1000;
+  private final java.util.Deque<Long> recentThrowTicks = new java.util.ArrayDeque<>();
+  private boolean wasSleepingWithPlayer;
 
   public Point focusLookOverride;
   public Point specialGoalOverride;
@@ -96,6 +101,18 @@ public final class SituationalBehavior {
   private final Set<Integer> seenDropIds = new HashSet<>();
   private final Set<Integer> seenLightningIds = new HashSet<>();
   private final java.util.Map<String, Long> durabilityWarnedAt = new java.util.HashMap<>();
+
+  public void recordThrow(long tick) {
+    recentThrowTicks.addLast(tick);
+    while (!recentThrowTicks.isEmpty() && tick - recentThrowTicks.peekFirst() > 300) {
+      recentThrowTicks.removeFirst();
+    }
+    if (recentThrowTicks.size() >= 3) {
+      dizzyTicks = 70;
+      pendingEmote = "💫 *schwindelig*";
+      recentThrowTicks.clear();
+    }
+  }
 
   public void tick(Minecraft mc, Point cubePos, long tick, boolean perched) {
     triggerGreetingSound = false;
@@ -178,11 +195,36 @@ public final class SituationalBehavior {
     }
     lastXpLevel = xp;
 
-    // 11. Bed / sleep companion
+    // 11. Bed / sleep companion + cheerful morning wake-up ritual!
     sleepingWithPlayer = player.isSleeping();
     if (sleepingWithPlayer) {
       Vec3 bedFoot = player.position().add(player.getLookAngle().multiply(1, 0, 1).normalize().scale(0.8));
       specialGoalOverride = new Point(bedFoot.x, player.getY() + 0.72, bedFoot.z);
+    } else if (wasSleepingWithPlayer) {
+      celebrateTicks = 32;
+      greetingTicks = 28;
+      triggerGreetingSound = true;
+      pendingEmote = "☀ Guten Morgen!";
+    }
+    wasSleepingWithPlayer = sleepingWithPlayer;
+
+    // 11b. Dizzy countdown + Weather & Biome micro-reactions (snow shiver, desert heat, thunderstorm tuck)
+    if (dizzyTicks > 0) dizzyTicks--;
+    thunderHide = level.isThundering() && level.canSeeSky(player.blockPosition());
+    if (tick % 80 == 0 && !perched && !sleepingWithPlayer && tick - lastBiomeEmoteTick >= 900) {
+      var bp = player.blockPosition();
+      var biome = level.getBiome(bp).value();
+      if (biome.coldEnoughToSnow(bp) && level.canSeeSky(bp)) {
+        rainShiverTicks = Math.max(rainShiverTicks, 36);
+        pendingEmote = "❄ *brrr*";
+        lastBiomeEmoteTick = tick;
+      } else if (biome.getBaseTemperature() >= 1.8f
+          && level.isDay()
+          && level.canSeeSky(bp)
+          && !level.isRaining()) {
+        pendingEmote = "☀ *puh*";
+        lastBiomeEmoteTick = tick;
+      }
     }
 
     // 12. Fishing bobber spectator & bite hop

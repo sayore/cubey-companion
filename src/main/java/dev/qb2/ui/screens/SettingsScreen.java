@@ -535,6 +535,30 @@ public final class SettingsScreen extends Screen {
         String skinLbl = formatChoiceLabel("cubeySkin", values.getOrDefault("cubeySkin", "obsidian"));
         graphics.drawCenteredString(
             font, font.plainSubstrByWidth(skinLbl, pw - 6), px + pw / 2, py + ph - 14, 0xFF8CC4E8);
+
+        // Live Theme-Colored Chat Preview Card right beneath the 3D Cubey preview!
+        int cy = py + ph + 6;
+        int ch = 28;
+        graphics.fill(px, cy, px + pw, cy + ch, 0xAA0A121C);
+        graphics.renderOutline(px, cy, pw, ch, 0x8838708C);
+        Settings tmp = new Settings();
+        tmp.cubeyTheme = values.getOrDefault("cubeyTheme", "neo_cyan");
+        tmp.language = values.getOrDefault("language", "de");
+        String greet =
+            switch (tmp.language) {
+              case "en" -> "Hello!";
+              case "fr" -> "Salut!";
+              case "es" -> "¡Hola!";
+              case "ja" -> "やあ！";
+              default -> "Hallo!";
+            };
+        graphics.drawString(
+            font,
+            font.plainSubstrByWidth("[" + previewName + "]", pw - 8),
+            px + 4,
+            cy + 4,
+            0xFF000000 | tmp.chatColorRgb());
+        graphics.drawString(font, greet, px + 4, cy + 15, 0xFFE8F4FF);
       }
     }
   }

@@ -39,6 +39,9 @@ public final class CompanionSession {
       new dev.qb2.network.RemoteCompanionTracker();
   public final dev.qb2.memory.MachineGraphMemory machineMemory =
       new dev.qb2.memory.MachineGraphMemory();
+  public final dev.qb2.perception.inventory.ContainerMemory containerMemory =
+      new dev.qb2.perception.inventory.ContainerMemory();
+  public final Map<String, Point> baseZones = new LinkedHashMap<>();
   public float lastRenderedYaw, lastRenderedPitch, lastRenderedRoll;
   public String pendingSyncSpeech = "";
   public boolean pendingWeeeeSound;
@@ -195,6 +198,29 @@ public final class CompanionSession {
       case "combat_flash" -> {
         combatActionTicks = 16;
         bubbles.emote("☀ Blitz!", tick);
+      }
+      case "feed" -> {
+        situational.celebrateTicks = 24;
+        bubbles.emote("🍞 *mampf!*", tick);
+      }
+      case "magnet" -> {
+        serverTaskType = "magnet";
+        serverTaskPos = pos;
+        serverTaskTicks = dur;
+        bubbles.emote("✦", tick);
+      }
+      case "deposit" -> {
+        serverTaskType = "deposit";
+        serverTaskPos = pos;
+        serverTaskTicks = dur;
+        bubbles.emote("📦 Abgelegt!", tick);
+      }
+      case "gift" -> {
+        serverTaskType = "gift";
+        serverTaskPos = pos;
+        serverTaskTicks = dur;
+        situational.celebrateTicks = 30;
+        bubbles.emote("🎁 Übergabe!", tick);
       }
       default -> {}
     }
@@ -391,9 +417,10 @@ public final class CompanionSession {
     boolean working = situational.workClearanceTicks > 0;
     // During combat OR mining/working, pull cleanly BEHIND the player's shoulder so Cubey NEVER
     // blocks a sword swing, pickaxe strike, or emergency retreat from lava!
+    boolean hideThunder = situational.thunderHide && !inCombat && !working;
     double homeHeight = inCombat ? 2.45 : working ? 1.65 : situational.sneaking ? 1.05 : 1.55;
-    double forwardOffset = inCombat ? -1.75 : working ? -1.45 : 2.05;
-    double sideOffset = inCombat ? 1.95 : working ? 1.15 : 0.95;
+    double forwardOffset = inCombat ? -1.75 : working ? -1.45 : hideThunder ? -0.95 : 2.05;
+    double sideOffset = inCombat ? 1.95 : working ? 1.15 : hideThunder ? 0.78 : 0.95;
     Point home =
         WorldSensor.point(
             mc.player
@@ -492,6 +519,7 @@ public final class CompanionSession {
       } else if (grabThrow.isThrown()) {
         // Just launched!
         situational.barrelRollTicks = 28;
+        situational.recordThrow(tick);
         pendingWeeeeSound = true;
         String yeetText = grabThrow.lastLaunchCharge() >= 0.78f ? "YEET!! ✦" : "Weeeee! ✦";
         bubbles.emote(yeetText, tick);

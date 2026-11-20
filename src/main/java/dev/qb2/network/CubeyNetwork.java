@@ -37,6 +37,7 @@ public final class CubeyNetwork {
   public static volatile BiConsumer<ServerPlayer, C2SPackSlotClickPayload>
       serverPackSlotClickHandler;
   public static volatile BiConsumer<ServerPlayer, C2SThrowHitMobPayload> serverThrowHitMobHandler;
+  public static volatile BiConsumer<ServerPlayer, C2SGiftPlayerPayload> serverGiftPlayerHandler;
 
   public record C2STelemetryPayload(
       double x,
@@ -236,6 +237,21 @@ public final class CubeyNetwork {
     }
   }
 
+  public record C2SGiftPlayerPayload(UUID targetPlayerId) implements CustomPacketPayload {
+    public static final Type<C2SGiftPlayerPayload> TYPE =
+        new Type<>(ResourceLocation.fromNamespaceAndPath("qb2", "c2s_gift_player"));
+
+    public static final StreamCodec<FriendlyByteBuf, C2SGiftPlayerPayload> CODEC =
+        StreamCodec.of(
+            (buf, p) -> buf.writeUUID(p.targetPlayerId),
+            buf -> new C2SGiftPlayerPayload(buf.readUUID()));
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+      return TYPE;
+    }
+  }
+
   public record S2CPackSyncPayload(
       ItemStack equipStack, List<ItemStack> backpackStacks, int flags)
       implements CustomPacketPayload {
@@ -334,6 +350,10 @@ public final class CubeyNetwork {
         C2SThrowHitMobPayload.TYPE,
         C2SThrowHitMobPayload.CODEC,
         CubeyNetwork::handleThrowHitMobServer);
+    registrar.playToServer(
+        C2SGiftPlayerPayload.TYPE,
+        C2SGiftPlayerPayload.CODEC,
+        CubeyNetwork::handleGiftPlayerServer);
     registrar.playToClient(
         S2CPackSyncPayload.TYPE, S2CPackSyncPayload.CODEC, CubeyNetwork::handlePackSyncClient);
     registrar.playToClient(
@@ -451,6 +471,16 @@ public final class CubeyNetwork {
         () -> {
           if (!(ctx.player() instanceof ServerPlayer player)) return;
           var handler = serverThrowHitMobHandler;
+          if (handler != null) handler.accept(player, payload);
+        });
+  }
+
+  private static void handleGiftPlayerServer(
+      C2SGiftPlayerPayload payload, IPayloadContext ctx) {
+    ctx.enqueueWork(
+        () -> {
+          if (!(ctx.player() instanceof ServerPlayer player)) return;
+          var handler = serverGiftPlayerHandler;
           if (handler != null) handler.accept(player, payload);
         });
   }
