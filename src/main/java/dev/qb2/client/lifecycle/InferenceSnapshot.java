@@ -120,8 +120,10 @@ public record InferenceSnapshot(
     if (attentionTarget != null) {
       context.put("focus", "b1: " + attentionTarget.name());
     }
-    // Mod-agnostic connected machine topology analysis (follows ONLY connected machines/pipes/fans)
+    // Mod-agnostic connected machine topology analysis + 3D spatial hash-cached memory!
     String machineGraphSummary = "";
+    Episode machineGraphEpisode = null;
+    String dimId = level.dimension().location().toString();
     net.minecraft.core.BlockPos graphSeed = null;
     if (mc.hitResult instanceof net.minecraft.world.phys.BlockHitResult bhr) {
       graphSeed = bhr.getBlockPos();
@@ -135,20 +137,41 @@ public record InferenceSnapshot(
     if (graphSeed != null) {
       var graph = dev.qb2.perception.world.MachineGraphAnalyzer.analyze(level, graphSeed);
       if (graph != null) {
-        machineGraphSummary = graph.summary();
+        var res =
+            session.machineMemory.observe(
+                scope,
+                dimId,
+                graph.centroid(),
+                graph.anchorBlock(),
+                graph.componentCounts(),
+                graph.flows(),
+                graph.observedContents(),
+                graph.summary());
+        machineGraphSummary =
+            res.diff() != null && !res.diff().isBlank()
+                ? graph.summary() + " | Changed since last seen: " + res.diff()
+                : graph.summary();
+        if (res.episode() != null) machineGraphEpisode = res.episode();
         session.lastMachineGraph = machineGraphSummary;
         session.lastMachineGraphTick = session.tick;
       }
     }
-    if (machineGraphSummary.isBlank()
-        && direct
-        && !session.lastMachineGraph.isBlank()
-        && session.tick - session.lastMachineGraphTick <= 500) {
-      // Preserve recently analyzed contraption for follow-up questions ("was für ressourcen denn?")
-      machineGraphSummary = session.lastMachineGraph;
+    if (machineGraphSummary.isBlank() && direct) {
+      if (!session.lastMachineGraph.isBlank() && session.tick - session.lastMachineGraphTick <= 500) {
+        machineGraphSummary = session.lastMachineGraph;
+      } else {
+        var near = session.machineMemory.nearby(dimId, playerPosition, 10.0);
+        if (!near.isEmpty()) {
+          machineGraphSummary = near.getFirst().summary();
+        }
+      }
     }
     if (!machineGraphSummary.isBlank()) {
       context.put("machineGraph", machineGraphSummary);
+    }
+    var compacted = session.chat.compactedMemory();
+    if (direct && !compacted.isEmpty()) {
+      context.put("chatSummary", compacted);
     }
     var recentChat = session.chat.snapshot();
     if (!recentChat.isEmpty()) {
@@ -239,6 +262,7 @@ public record InferenceSnapshot(
             localCatalogFacts,
             machineGraphSummary);
     var events = new ArrayList<Episode>();
+    if (machineGraphEpisode != null) events.add(machineGraphEpisode);
     if (!text.isBlank())
       events.add(
           Episode.create(

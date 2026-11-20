@@ -127,6 +127,9 @@ public final class CubeyServerHelper {
     long nextCombatTick;
     long nextShieldTick;
     long nextHealTick;
+    int markedTargetId;
+    long markedTargetUntilTick;
+    long nextThrowBonkTick;
   }
 
   private static final Map<UUID, PlayerRuntime> RUNTIME = new HashMap<>();
@@ -139,6 +142,7 @@ public final class CubeyServerHelper {
     registered = true;
     CubeyNetwork.serverPackActionHandler = CubeyServerHelper::handlePackAction;
     CubeyNetwork.serverPackSlotClickHandler = CubeyServerHelper::handlePackSlotClick;
+    CubeyNetwork.serverThrowHitMobHandler = CubeyServerHelper::handleThrowHitMob;
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onServerTick);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onIncomingDamage);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerLogin);
@@ -247,6 +251,54 @@ public final class CubeyServerHelper {
     player.containerMenu.broadcastChanges();
     storage.setDirty();
     CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
+  }
+
+  /**
+   * Throwing Cubey directly at a hostile or neutral/passive-aggressive mob bonks it gently and
+   * marks it as Cubey's priority combat target for 15 seconds!
+   */
+  private static void handleThrowHitMob(
+      ServerPlayer player, CubeyNetwork.C2SThrowHitMobPayload payload) {
+    if (!player.isAlive() || player.isSpectator()) return;
+    if (!(player.level() instanceof ServerLevel level)) return;
+    long tick = player.server.getTickCount();
+    PlayerRuntime rt = RUNTIME.computeIfAbsent(player.getUUID(), id -> new PlayerRuntime());
+    if (tick < rt.nextThrowBonkTick) return;
+
+    var entity = level.getEntity(payload.entityId());
+    if (!(entity instanceof net.minecraft.world.entity.Mob mob) || !mob.isAlive()) return;
+    if (mob instanceof net.minecraft.world.entity.TamableAnimal t && t.isTame()) return;
+    if (mob instanceof net.minecraft.world.entity.npc.AbstractVillager) return;
+    if (mob.distanceToSqr(player) > 28.0 * 28.0) return;
+
+    rt.nextThrowBonkTick = tick + 18;
+    rt.markedTargetId = mob.getId();
+    rt.markedTargetUntilTick = tick + 300; // 15s focus mark!
+
+    mob.hurt(level.damageSources().playerAttack(player), 1.5f);
+    Vec3 push = mob.position().subtract(player.position());
+    if (push.lengthSqr() > 0.001) {
+      push = push.normalize();
+      mob.push(push.x * 0.45, 0.22, push.z * 0.45);
+      mob.hurtMarked = true;
+    }
+    level.sendParticles(
+        ParticleTypes.CRIT,
+        mob.getX(),
+        mob.getY() + mob.getBbHeight() * 0.6,
+        mob.getZ(),
+        6,
+        0.25,
+        0.2,
+        0.25,
+        0.04);
+    level.playSound(
+        null,
+        mob.blockPosition(),
+        SoundEvents.PLAYER_ATTACK_KNOCKBACK,
+        SoundSource.PLAYERS,
+        0.65f,
+        1.35f);
   }
 
   private static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
@@ -676,7 +728,7 @@ public final class CubeyServerHelper {
     }
 
     if (tick < rt.nextCombatTick) return;
-    Monster target = findThreateningMonster(level, player, 10.0);
+    net.minecraft.world.entity.Mob target = findThreateningMonster(level, player, rt, tick, 10.0);
     if (target == null) return;
 
     Vec3 shoulder = player.getEyePosition().add(0, 0.55, 0);
@@ -859,15 +911,41 @@ public final class CubeyServerHelper {
     }
   }
 
-  private static Monster findThreateningMonster(
-      ServerLevel level, ServerPlayer player, double radius) {
+  private static boolean isNeutralOrPassiveAggressive(net.minecraft.world.entity.Mob m) {
+    if (m instanceof net.minecraft.world.entity.NeutralMob) return true;
+    String id = BuiltInRegistries.ENTITY_TYPE.getKey(m.getType()).toString();
+    return id.contains("zombified_piglin")
+        || id.contains("piglin")
+        || id.contains("enderman")
+        || id.contains("spider");
+  }
+
+  private static net.minecraft.world.entity.Mob findThreateningMonster(
+      ServerLevel level, ServerPlayer player, PlayerRuntime rt, long tick, double radius) {
+    // 1. Highest priority: mob explicitly marked by throwing Cubey at it!
+    if (rt.markedTargetId > 0 && tick <= rt.markedTargetUntilTick) {
+      var ent = level.getEntity(rt.markedTargetId);
+      if (ent instanceof net.minecraft.world.entity.Mob marked
+          && marked.isAlive()
+          && !marked.isInvisible()
+          && marked.distanceToSqr(player) <= (radius + 4.0) * (radius + 4.0)
+          && player.hasLineOfSight(marked)) {
+        return marked;
+      }
+    }
     AABB box = player.getBoundingBox().inflate(radius, 4.0, radius);
     Monster best = null;
     double bestDistSq = radius * radius;
     LivingEntity lastHurt = player.getLastHurtMob();
     for (Monster m : level.getEntitiesOfClass(Monster.class, box)) {
       if (!m.isAlive() || m.isInvisible()) continue;
-      boolean relevant = m.getTarget() == player || m == lastHurt || m.distanceToSqr(player) <= 16.0;
+      boolean neutral = isNeutralOrPassiveAggressive(m);
+      // NEVER auto-aggro neutral/passive-aggressive mobs (e.g. Zombified Piglins, Endermen) from
+      // proximity alone — only engage them if they target the player, were hit, or Cubey was thrown!
+      boolean relevant =
+          neutral
+              ? (m.getTarget() == player || m == lastHurt)
+              : (m.getTarget() == player || m == lastHurt || m.distanceToSqr(player) <= 16.0);
       if (!relevant) continue;
       if (!player.hasLineOfSight(m)) continue;
       double d2 = m.distanceToSqr(player);

@@ -110,6 +110,7 @@ public final class MachineGraphAnalyzer {
 
   public record MachineGraph(
       String anchorBlock,
+      dev.qb2.companion.movement.Point centroid,
       int totalBlocks,
       Map<String, Integer> componentCounts,
       List<String> flows,
@@ -245,6 +246,16 @@ public final class MachineGraphAnalyzer {
     List<String> flowList = flows.stream().limit(10).toList();
     List<String> contentList = contents.stream().limit(10).toList();
 
+    double sx = 0, sy = 0, sz = 0;
+    for (BlockPos bp : visited) {
+      sx += bp.getX() + 0.5;
+      sy += bp.getY() + 0.5;
+      sz += bp.getZ() + 0.5;
+    }
+    var centroid =
+        new dev.qb2.companion.movement.Point(
+            sx / visited.size(), sy / visited.size(), sz / visited.size());
+
     StringBuilder sb = new StringBuilder();
     sb.append("Connected assembly (").append(visited.size()).append(" blocks around ").append(shortName(anchorId)).append("): ");
     int shown = 0;
@@ -259,7 +270,8 @@ public final class MachineGraphAnalyzer {
     if (!contentList.isEmpty()) {
       sb.append(" | Live contents/state: ").append(String.join("; ", contentList));
     }
-    return new MachineGraph(anchorId, visited.size(), counts, flowList, contentList, sb.toString());
+    return new MachineGraph(
+        anchorId, centroid, visited.size(), counts, flowList, contentList, sb.toString());
   }
 
   private static void detectFanProcessingLine(

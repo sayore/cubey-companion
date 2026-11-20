@@ -37,6 +37,8 @@ public final class CompanionSession {
       new dev.qb2.cognition.decisions.ActionQueue();
   public final dev.qb2.network.RemoteCompanionTracker peers =
       new dev.qb2.network.RemoteCompanionTracker();
+  public final dev.qb2.memory.MachineGraphMemory machineMemory =
+      new dev.qb2.memory.MachineGraphMemory();
   public float lastRenderedYaw, lastRenderedPitch, lastRenderedRoll;
   public String pendingSyncSpeech = "";
   public boolean pendingWeeeeSound;
@@ -592,6 +594,25 @@ public final class CompanionSession {
       if (!grabThrow.isThrown() && catchVisitTicks == 0) {
         action = "return";
         actionUntil = tick + 100;
+      } else if (grabThrow.isThrown()
+          && mc.getConnection() != null
+          && mc.getConnection().hasChannel(dev.qb2.network.CubeyNetwork.C2SThrowHitMobPayload.TYPE)) {
+        // Throw Cubey directly at a hostile or neutral mob -> BONK & mark as Cubey's attack target!
+        AABB hitBox = new AABB(next.x(), next.y(), next.z(), next.x(), next.y(), next.z()).inflate(0.95);
+        for (var mob : mc.level.getEntitiesOfClass(net.minecraft.world.entity.Mob.class, hitBox)) {
+          if (!mob.isAlive() || mob.isInvisible()) continue;
+          if (mob instanceof net.minecraft.world.entity.TamableAnimal t && t.isTame()) continue;
+          if (mob instanceof net.minecraft.world.entity.npc.AbstractVillager) continue;
+          grabThrow.release();
+          pendingBoingSound = true;
+          combatActionTicks = 20;
+          bubbles.emote("💥 BONK!", tick);
+          net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+              new dev.qb2.network.CubeyNetwork.C2SThrowHitMobPayload(mob.getId()));
+          action = "return";
+          actionUntil = tick + 80;
+          break;
+        }
       }
     } else if (catchVisitTicks > 0 && catchVisitPos != null) {
       flightGoal = catchVisitPos;

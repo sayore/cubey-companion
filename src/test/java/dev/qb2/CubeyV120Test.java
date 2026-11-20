@@ -92,4 +92,74 @@ final class CubeyV120Test {
     assertEquals("Deutsch", s.languageLabel());
     assertEquals(0xFF88C8, s.chatColorRgb());
   }
+
+  @Test
+  void chatHistorySlowDispenseCompactsOverflowIntoLogicChains() {
+    var hist = new dev.qb2.perception.chat.ChatHistory();
+    hist.add(
+        dev.qb2.perception.chat.ChatHistory.Source.PLAYER,
+        "@cube Was bedeutet Smite auf einem Schwert?",
+        1L);
+    hist.add(
+        dev.qb2.perception.chat.ChatHistory.Source.QB2,
+        "Smite bedeutet mehr Schaden gegen Untote damit Zombies schneller fallen.",
+        2L);
+    for (int i = 0; i < 20; i++) {
+      hist.add(dev.qb2.perception.chat.ChatHistory.Source.PLAYER, "Test message " + i, 10L + i);
+    }
+    assertEquals(20, hist.snapshot().size());
+    var chains = hist.compactedMemory();
+    assertFalse(chains.isEmpty());
+    assertTrue(chains.getFirst().contains("Smite"));
+    assertTrue(chains.getFirst().contains("→"));
+  }
+
+  @Test
+  void machineGraphMemoryHashesDeduplicatesAndInvalidatesOnChange() {
+    var mem = new dev.qb2.memory.MachineGraphMemory();
+    String scope = "a".repeat(64);
+    var pos = new Point(82.5, 62.5, -260.5);
+
+    var r1 =
+        mem.observe(
+            scope,
+            "minecraft:overworld",
+            pos,
+            "create:depot",
+            java.util.Map.of("create:encased_fan", 3, "create:depot", 3),
+            java.util.List.of("encased_fan --(water (Bulk Washing))--> depot"),
+            java.util.List.of("depot holds minecraft:gravel"),
+            "Create washing station");
+    assertEquals(dev.qb2.memory.MachineGraphMemory.Status.NEW, r1.status());
+    assertNotNull(r1.episode());
+
+    // Exact same machine -> UNCHANGED, zero new episode writes!
+    var r2 =
+        mem.observe(
+            scope,
+            "minecraft:overworld",
+            pos.add(new Point(0.4, 0, 0)),
+            "create:depot",
+            java.util.Map.of("create:encased_fan", 3, "create:depot", 3),
+            java.util.List.of("encased_fan --(water (Bulk Washing))--> depot"),
+            java.util.List.of("depot holds minecraft:gravel"),
+            "Create washing station");
+    assertEquals(dev.qb2.memory.MachineGraphMemory.Status.UNCHANGED, r2.status());
+    assertNull(r2.episode());
+
+    // Player adds a Brass Funnel & switches water to lava -> hash invalidated & diff computed!
+    var r3 =
+        mem.observe(
+            scope,
+            "minecraft:overworld",
+            pos,
+            "create:depot",
+            java.util.Map.of("create:encased_fan", 3, "create:depot", 3, "create:brass_funnel", 1),
+            java.util.List.of("encased_fan --(lava (Bulk Smelting))--> depot"),
+            java.util.List.of("depot holds minecraft:raw_iron"),
+            "Create smelting station");
+    assertEquals(dev.qb2.memory.MachineGraphMemory.Status.UPDATED, r3.status());
+    assertNotNull(r3.episode());
+    assertTrue(r3.diff().contains("+1 brass_funnel"));
+  }
 }

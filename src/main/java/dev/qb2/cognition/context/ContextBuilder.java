@@ -20,7 +20,15 @@ You cannot edit blocks, run commands, or control the player.
 """;
   private static final Gson JSON = new Gson();
   private static final Set<String> HIGH_WEIGHT_KEYS =
-      Set.of("request", "chat", "world", "machineGraph", "memories", "knowledge", "reachableTargets");
+      Set.of(
+          "request",
+          "chat",
+          "chatSummary",
+          "world",
+          "machineGraph",
+          "memories",
+          "knowledge",
+          "reachableTargets");
   private static final Set<String> PRESERVED_KEYS =
       Set.of(
           "key",

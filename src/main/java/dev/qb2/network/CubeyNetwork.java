@@ -34,6 +34,7 @@ public final class CubeyNetwork {
   public static volatile BiConsumer<ServerPlayer, C2SPackActionPayload> serverPackActionHandler;
   public static volatile BiConsumer<ServerPlayer, C2SPackSlotClickPayload>
       serverPackSlotClickHandler;
+  public static volatile BiConsumer<ServerPlayer, C2SThrowHitMobPayload> serverThrowHitMobHandler;
 
   public record C2STelemetryPayload(
       double x,
@@ -218,6 +219,21 @@ public final class CubeyNetwork {
     }
   }
 
+  public record C2SThrowHitMobPayload(int entityId) implements CustomPacketPayload {
+    public static final Type<C2SThrowHitMobPayload> TYPE =
+        new Type<>(ResourceLocation.fromNamespaceAndPath("qb2", "c2s_throw_hit_mob"));
+
+    public static final StreamCodec<FriendlyByteBuf, C2SThrowHitMobPayload> CODEC =
+        StreamCodec.of(
+            (buf, p) -> buf.writeVarInt(p.entityId),
+            buf -> new C2SThrowHitMobPayload(buf.readVarInt()));
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+      return TYPE;
+    }
+  }
+
   public record S2CPackSyncPayload(
       String equipItemId,
       int equipCount,
@@ -322,6 +338,10 @@ public final class CubeyNetwork {
         C2SPackSlotClickPayload.TYPE,
         C2SPackSlotClickPayload.CODEC,
         CubeyNetwork::handlePackSlotClickServer);
+    registrar.playToServer(
+        C2SThrowHitMobPayload.TYPE,
+        C2SThrowHitMobPayload.CODEC,
+        CubeyNetwork::handleThrowHitMobServer);
     registrar.playToClient(
         S2CPackSyncPayload.TYPE, S2CPackSyncPayload.CODEC, CubeyNetwork::handlePackSyncClient);
     registrar.playToClient(
@@ -429,6 +449,16 @@ public final class CubeyNetwork {
         () -> {
           if (!(ctx.player() instanceof ServerPlayer player)) return;
           var handler = serverPackSlotClickHandler;
+          if (handler != null) handler.accept(player, payload);
+        });
+  }
+
+  private static void handleThrowHitMobServer(
+      C2SThrowHitMobPayload payload, IPayloadContext ctx) {
+    ctx.enqueueWork(
+        () -> {
+          if (!(ctx.player() instanceof ServerPlayer player)) return;
+          var handler = serverThrowHitMobHandler;
           if (handler != null) handler.accept(player, payload);
         });
   }
