@@ -201,9 +201,13 @@ public final class Mind implements AutoCloseable {
                     sections.put("knowledge", List.of());
                   }
                 }
-                String context = new ContextBuilder().build(sections, job.settings().tokenBudget);
-                status = "thinking";
                 boolean ambient = !"direct address".equals(job.reason());
+                int effectiveBudget =
+                    ambient
+                        ? Math.min(job.settings().tokenBudget, 700)
+                        : job.settings().tokenBudget;
+                String context = new ContextBuilder().build(sections, effectiveBudget);
+                status = "thinking";
                 var model =
                     new ApiLanguageModel(
                         http, job.settings(), job.apiKey(), job.fallbackApiKey(), ambient);

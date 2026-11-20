@@ -4,7 +4,7 @@ public final class Settings {
   public String provider = "google";
   public String endpoint = "https://generativelanguage.googleapis.com/v1beta";
   public String model = "gemma-4-31b-it";
-  public String modelChain = "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-2.5-flash,gemini-2.5-flash-lite";
+  public String modelChain = "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-2.5-flash-lite";
   public String ambientModel = "gemma-4-26b-a4b-it";
   public String fallbackProvider = "";
   public String fallbackEndpoint = "";
@@ -12,7 +12,7 @@ public final class Settings {
   public String nerveEndpoint = "http://127.0.0.1:17842";
   public int memoryTopK = 3;
   public double perceptionRadius = 10, exploreRadius = 7, fieldOfView = 110;
-  public int inferenceSeconds = 18, speechSeconds = 45, tokenBudget = 2200, outputTokens = 350, timeoutSeconds = 25;
+  public int inferenceSeconds = 20, speechSeconds = 45, tokenBudget = 950, outputTokens = 450, timeoutSeconds = 25;
   public boolean autonomous = true, thoughts = true, speech = true, particles = true;
   public boolean sounds = true, showTargetBeam = true, smoothFollow = true;
   public boolean debug = false, paused = false, serverChat = false;

@@ -196,23 +196,26 @@ public final class SettingsScreen extends Screen {
     if (p == 0) {
       values.put("provider", "google");
       values.put("endpoint", "https://generativelanguage.googleapis.com/v1beta");
-      values.put("model", "gemma-4-31b-it");
-      values.put("modelChain", "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-2.5-flash,gemini-2.5-flash-lite");
+      values.put("model", "gemma-4-26b-a4b-it");
+      values.put("modelChain", "gemma-4-26b-a4b-it,gemma-4-31b-it,gemini-2.5-flash-lite");
       values.put("ambientModel", "gemma-4-26b-a4b-it");
-      message = "Preset applied: Google Smart Chain (Save to activate).";
+      values.put("tokenBudget", "950");
+      message = "Preset applied: Google Gemma 4 Slim (Save to activate).";
     } else if (p == 1) {
       values.put("provider", "google");
       values.put("endpoint", "https://generativelanguage.googleapis.com/v1beta");
-      values.put("model", "gemma-4-26b-a4b-it");
-      values.put("modelChain", "gemma-4-26b-a4b-it,gemini-2.5-flash,gemini-2.5-flash-lite");
-      values.put("ambientModel", "gemini-2.5-flash-lite");
-      message = "Preset applied: Google Fast (Save to activate).";
+      values.put("model", "gemma-4-31b-it");
+      values.put("modelChain", "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-2.5-flash-lite");
+      values.put("ambientModel", "gemma-4-26b-a4b-it");
+      values.put("tokenBudget", "1050");
+      message = "Preset applied: Google 31B Primary (Save to activate).";
     } else {
       values.put("provider", "openai");
       values.put("endpoint", "http://127.0.0.1:11434/v1");
       values.put("model", "gemma3:12b");
       values.put("modelChain", "gemma3:12b,gemma3:4b");
       values.put("ambientModel", "gemma3:4b");
+      values.put("tokenBudget", "1200");
       message = "Preset applied: Local Ollama (Save to activate).";
     }
     rebuildWidgets();
