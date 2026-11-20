@@ -84,6 +84,8 @@ public final class Motion {
     velocity = velocity.lerp(desired, 0.15);
     Point next = constrain(center, position.add(velocity), radius);
     if (!pathFree(position, next, free)) {
+      cachedWaypoint = null;
+      waypointTtl = 0;
       next = position;
       for (Point offset : DETOURS) {
         Point candidate = position.add(offset);

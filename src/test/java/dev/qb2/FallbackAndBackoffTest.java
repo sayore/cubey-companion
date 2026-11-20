@@ -127,6 +127,14 @@ final class FallbackAndBackoffTest {
     assertEquals("qwen3:8b", reloaded.settings().fallbackModel);
     assertFalse(reloaded.settings().sounds);
 
+    Settings styled = reloaded.settings().copy();
+    styled.style = "x".repeat(200);
+    styled.validate();
+    assertEquals(120, styled.style.length());
+    styled.style = "   ";
+    styled.validate();
+    assertEquals("calm", styled.style);
+
     HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
     server.createContext(
         "/",

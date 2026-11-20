@@ -1,6 +1,5 @@
 package dev.qb2.client.lifecycle;
 
-import com.google.gson.Gson;
 import dev.qb2.client.config.*;
 import dev.qb2.cognition.planning.Mind;
 import dev.qb2.companion.movement.Point;
@@ -8,6 +7,7 @@ import dev.qb2.memory.Episode;
 import dev.qb2.perception.*;
 import dev.qb2.perception.chat.ChatHistory;
 import dev.qb2.rendering.cube.CompanionRenderer;
+import dev.qb2.ui.overlay.DebugOverlay;
 import dev.qb2.ui.screens.SettingsScreen;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -45,8 +45,7 @@ public final class ClientController {
   private final dev.qb2.memory.SessionSummarizer summarizer =
       new dev.qb2.memory.SessionSummarizer();
   private final List<Episode> pendingBackgroundEpisodes = new ArrayList<>();
-  private final dev.qb2.inference.HttpTransport inspectorHttp =
-      new dev.qb2.inference.HttpTransport();
+  private final MemoryInspectorClient inspectorClient = new MemoryInspectorClient();
   private Point lastInteractedBlock;
   private final dev.qb2.diagnostics.ClientSmokeProbe smoke =
       new dev.qb2.diagnostics.ClientSmokeProbe();
@@ -92,7 +91,9 @@ public final class ClientController {
           if (session != null && !configuration.settings().paused)
             renderer.render(e, session, configuration.settings());
         });
-    NeoForge.EVENT_BUS.addListener(this::overlay);
+    NeoForge.EVENT_BUS.addListener((RenderGuiEvent.Post e) -> DebugOverlay.render(e, this));
+    NeoForge.EVENT_BUS.addListener(
+        (RegisterClientCommandsEvent e) -> QB2ClientCommands.register(e, this));
     NeoForge.EVENT_BUS.addListener(
         (RecipesUpdatedEvent e) -> {
           knowledge.close();
@@ -102,7 +103,7 @@ public final class ClientController {
         (net.neoforged.neoforge.event.GameShuttingDownEvent e) -> {
           mind.close();
           knowledge.close();
-          inspectorHttp.close();
+          inspectorClient.close();
         });
   }
 
@@ -128,27 +129,9 @@ public final class ClientController {
   private void tick(ClientTickEvent.Post event) {
     smoke.tick(this);
     while (settingsKey.consumeClick()) mc.setScreen(new SettingsScreen(mc.screen, this));
-    while (pauseKey.consumeClick()) {
-      var cfg = configuration.settings();
-      cfg.paused = !cfg.paused;
-      mc.gui
-          .getChat()
-          .addMessage(Component.translatable(cfg.paused ? "msg.qb2.paused" : "msg.qb2.resumed"));
-    }
-    while (summonKey.consumeClick()) {
-      if (session != null && !configuration.settings().paused) {
-        session.summon();
-        audio.play(
-            mc,
-            configuration.settings(),
-            session.motion.position(),
-            dev.qb2.rendering.audio.CompanionAudio.Cue.SUMMON);
-        mc.gui.getChat().addMessage(Component.translatable("msg.qb2.summoned"));
-      }
-    }
-    while (lookHereKey.consumeClick()) {
-      if (session != null && !configuration.settings().paused) handleLookHere();
-    }
+    while (pauseKey.consumeClick()) setPaused(!configuration.settings().paused);
+    while (summonKey.consumeClick()) summonCompanion();
+    while (lookHereKey.consumeClick()) lookHereCompanion();
     if (mc.level != level || mc.player != player) {
       reset();
       level = mc.level;
@@ -318,6 +301,8 @@ public final class ClientController {
       allEvents.addAll(pendingBackgroundEpisodes);
       pendingBackgroundEpisodes.clear();
     }
+    var contextMap = new LinkedHashMap<>(snapshot.context());
+    if (s.style != null && !s.style.isBlank()) contextMap.put("style", s.style);
     var job =
         new Mind.Job(
             epoch,
@@ -326,7 +311,7 @@ public final class ClientController {
             s,
             configuration.apiKey(),
             configuration.nerveKey(),
-            snapshot.context(),
+            contextMap,
             keywords,
             snapshot.targets(),
             List.copyOf(allEvents),
@@ -389,57 +374,39 @@ public final class ClientController {
     enqueue(new Trigger("direct address", 0, "Look at " + focused.name() + " (" + focused.key() + ")"));
   }
 
+  public void setPaused(boolean paused) {
+    configuration.settings().paused = paused;
+    mc.gui.getChat().addMessage(Component.translatable(paused ? "msg.qb2.paused" : "msg.qb2.resumed"));
+  }
+
+  public void summonCompanion() {
+    if (session == null || configuration.settings().paused) return;
+    session.summon();
+    audio.play(
+        mc,
+        configuration.settings(),
+        session.motion.position(),
+        dev.qb2.rendering.audio.CompanionAudio.Cue.SUMMON);
+    mc.gui.getChat().addMessage(Component.translatable("msg.qb2.summoned"));
+  }
+
+  public void lookHereCompanion() {
+    if (session == null || configuration.settings().paused) return;
+    handleLookHere();
+  }
+
+  public int pendingTriggerCount() {
+    return triggers.size();
+  }
+
   public void searchMemoriesAsync(String query, java.util.function.Consumer<List<Episode>> cb) {
-    String currentScope = scope;
-    var s = configuration.settings();
-    String nerveKey = configuration.nerveKey();
-    if (currentScope == null || currentScope.isBlank()) {
-      cb.accept(List.of());
-      return;
-    }
-    List<String> words = Keywords.extract(query == null ? "" : query);
-    if (words.isEmpty()) words = List.of("session", "container", "player", "block");
-    List<String> finalWords = words;
-    Thread t =
-        new Thread(
-            () -> {
-              try {
-                var mem =
-                    new dev.qb2.memory.nerve.NerveMemory(inspectorHttp, s.nerveEndpoint, nerveKey);
-                var results = mem.search(currentScope, finalWords, 12);
-                mc.execute(() -> cb.accept(results));
-              } catch (Exception e) {
-                mc.execute(() -> cb.accept(List.of()));
-              }
-            },
-            "qb2-memory-inspector");
-    t.setDaemon(true);
-    t.start();
+    inspectorClient.searchAsync(
+        mc, configuration.settings(), configuration.nerveKey(), scope, query, cb);
   }
 
   public void deleteMemoryAsync(String id, java.util.function.Consumer<Boolean> cb) {
-    String currentScope = scope;
-    var s = configuration.settings();
-    String nerveKey = configuration.nerveKey();
-    if (currentScope == null || currentScope.isBlank() || id == null || id.isBlank()) {
-      cb.accept(false);
-      return;
-    }
-    Thread t =
-        new Thread(
-            () -> {
-              try {
-                var mem =
-                    new dev.qb2.memory.nerve.NerveMemory(inspectorHttp, s.nerveEndpoint, nerveKey);
-                mem.delete(currentScope, id);
-                mc.execute(() -> cb.accept(true));
-              } catch (Exception e) {
-                mc.execute(() -> cb.accept(false));
-              }
-            },
-            "qb2-memory-delete");
-    t.setDaemon(true);
-    t.start();
+    inspectorClient.deleteAsync(
+        mc, configuration.settings(), configuration.nerveKey(), scope, id, cb);
   }
 
   private void apply(Mind.Outcome outcome) {
@@ -523,51 +490,5 @@ public final class ClientController {
     if (session != null)
       enqueue(new Trigger("direct address", 0, "Reply briefly to confirm the connection."));
     else error = "Join a world to test perception, memory and inference together";
-  }
-
-  private void overlay(RenderGuiEvent.Post event) {
-    if (!configuration.settings().debug || session == null) return;
-    String modelTag =
-        mind.activeModel.isBlank() ? configuration.settings().model : mind.activeModel;
-    String cooldownTag =
-        mind.inCooldown() ? " · backoff " + mind.cooldownRemainingSeconds() + "s" : "";
-    var viewerMods = dev.qb2.perception.world.ModpackInspector.detectedViewerMods();
-    String modpackTag = viewerMods.isEmpty() ? "" : " · mods:" + String.join(",", viewerMods);
-    var lines =
-        List.of(
-            "QB2 · "
-                + session.state
-                + " · "
-                + (configuration.settings().paused ? "PAUSED" : mind.status)
-                + cooldownTag,
-            "Model: " + modelTag + modpackTag,
-            "Target: "
-                + (session.attention.target() == null ? "none" : session.attention.target().key()),
-            "Seen: " + session.observations.size() + " | action: " + lastAction,
-            "Keywords: " + String.join(", ", keywords),
-            "NERVE: "
-                + mind.memoryStatus
-                + " · hits "
-                + recalled.stream()
-                    .limit(3)
-                    .map(e -> e.kind() + ":" + e.id().substring(0, 8))
-                    .collect(java.util.stream.Collectors.joining(","))
-                + " · pending "
-                + mind.pending,
-            "Context ~"
-                + contextTokens
-                + " tokens · "
-                + inferenceMillis
-                + "ms · requests "
-                + triggers.size(),
-            "Knowledge: " + knowledge.status + " · recalled " + mind.knowledgeHits,
-            "Error: " + error);
-    int y = 8;
-    for (String line : lines) {
-      String clipped =
-          mc.font.plainSubstrByWidth(line, Math.max(100, mc.getWindow().getGuiScaledWidth() - 16));
-      event.getGuiGraphics().drawString(mc.font, clipped, 8, y, 0xC8EFFF);
-      y += 11;
-    }
   }
 }

@@ -16,6 +16,7 @@ public final class Settings {
   public boolean debug = false, paused = false, serverChat = false;
   public double glow = 0.85, bubbleOpacity = 0.8;
   public String triggers = "@cube,@qb,qb2";
+  public String style = "calm";
 
   public boolean hasFallback() {
     return fallbackModel != null && !fallbackModel.isBlank();
@@ -50,6 +51,7 @@ public final class Settings {
     c.glow = glow;
     c.bubbleOpacity = bubbleOpacity;
     c.triggers = triggers;
+    c.style = style;
     return c;
   }
 
@@ -67,6 +69,8 @@ public final class Settings {
     if (fallbackProvider == null) fallbackProvider = "";
     if (fallbackEndpoint == null) fallbackEndpoint = "";
     if (fallbackModel == null) fallbackModel = "";
+    if (style == null || style.isBlank()) style = "calm";
+    if (style.length() > 120) style = style.substring(0, 120);
     if (!provider.equals("google") && !provider.equals("openai"))
       throw new IllegalArgumentException("Provider: google/openai");
     if (!model.matches("[a-zA-Z0-9._:/-]{1,150}"))

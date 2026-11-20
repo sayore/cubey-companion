@@ -87,7 +87,7 @@ public final class VoxelPathfinder {
       for (int[] dir : CARDINALS) {
         long neighbor = pack(cx + dir[0], cy + dir[1], cz + dir[2]);
         if (closed.contains(neighbor)) continue;
-        Point np = centerOf(neighbor);
+        Point np = neighbor == goalKey ? goal : centerOf(neighbor);
         if (np.distance(sphereCenter) > radius) continue;
         if (!free.test(np)) continue;
 
