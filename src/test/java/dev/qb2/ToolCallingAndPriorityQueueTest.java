@@ -285,5 +285,24 @@ final class ToolCallingAndPriorityQueueTest {
         social.tryStartOtherPlayerEmote(otherPlayer, "Steve", true, true, 1050L, 3.0));
     assertTrue(
         social.tryStartOtherPlayerEmote(otherPlayer, "Steve", true, true, 1200L, 3.0));
+
+    // 7. MorphState smoothly blends Tesseract, Fluid-Blob, Aero-Delta, Mochi-Sleep, and 7 Neo-Eye moods
+    var morph = new dev.qb2.rendering.animation.MorphState();
+    var thinkingSnap =
+        morph.update(0.1, 1.0, 0.0, false, true, false, false, false, false, false, false);
+    assertEquals(
+        dev.qb2.rendering.animation.MorphState.EyeMood.ORBIT_SPINNER, thinkingSnap.eyeMood());
+    assertTrue(thinkingSnap.tesseractOpen() > 0.4f);
+
+    var blobSnap =
+        morph.update(0.1, 2.0, 0.0, false, false, true, false, false, true, false, false);
+    assertEquals(dev.qb2.rendering.animation.MorphState.EyeMood.VOICE_WAVE, blobSnap.eyeMood());
+    assertTrue(blobSnap.blobMorph() > 0.5f);
+
+    var sleepSnap =
+        morph.update(0.1, 3.0, 0.0, true, false, false, false, false, false, false, false);
+    assertEquals(dev.qb2.rendering.animation.MorphState.EyeMood.SLEEP_SLITS, sleepSnap.eyeMood());
+    assertTrue(sleepSnap.mochiSleep() > 0.4f);
+    assertTrue(sleepSnap.squashY() < 1.0f);
   }
 }

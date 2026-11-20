@@ -21,6 +21,8 @@ public final class CompanionRenderer {
   private long lastFrame = System.nanoTime();
   private final dev.qb2.rendering.animation.CubeAnimation animation =
       new dev.qb2.rendering.animation.CubeAnimation();
+  private final dev.qb2.rendering.animation.MorphState morph =
+      new dev.qb2.rendering.animation.MorphState();
   private final dev.qb2.rendering.bubbles.BubbleRenderer bubbles =
       new dev.qb2.rendering.bubbles.BubbleRenderer();
 
@@ -125,19 +127,47 @@ public final class CompanionRenderer {
     }
     var buffers = mc.renderBuffers().bufferSource();
     var vertices = buffers.getBuffer(type);
-    // Main dark chassis
-    box(
-        poses, vertices, -0.118f, -0.118f, -0.118f, 0.118f, 0.118f, 0.118f, 0.032f, 0.042f, 0.058f,
-        1);
-    // Keep the sensor & edge geometry in the same full-bright material pass as the body.
-    // Separate eyes/emissive passes are discarded by some Iris/Sodium pack pipelines.
     var light = vertices;
     float baseIntensity = (float) (0.45 + settings.glow * frame.light() * 0.55);
     float intensity =
-        sit.darkMode ? Math.min(1.0f, baseIntensity * 1.18f) : sit.sneaking ? baseIntensity * 0.65f : baseIntensity;
+        sit.darkMode
+            ? Math.min(1.0f, baseIntensity * 1.18f)
+            : sit.sneaking ? baseIntensity * 0.65f : baseIntensity;
     boolean thinking = "Thinking".equals(session.state);
     boolean speaking = "Speaking".equals(session.state);
+    boolean curious =
+        "Curious".equals(session.state)
+            || sit.peeking
+            || sit.itemDropTicks > 0
+            || sit.oreSparkleTicks > 0
+            || sit.abyssLookTicks > 0;
+    boolean happySocial =
+        sit.celebrateTicks > 0
+            || sit.greetingTicks > 0
+            || sit.dancing
+            || sit.petPlayTicks > 0
+            || sit.social.isActive();
+    boolean threatOrAiming =
+        sit.threatTicks > 0 || sit.concernTicks > 0 || sit.aimingSpotter || sit.lightningStartleTicks > 0;
+    boolean inspectingTarget =
+        session.guideDestination != null
+            || (session.activeTarget() != null && BEAM_ACTIONS.contains(session.action));
     boolean errorVisual = session.apiBackoff || session.errorTintTicks > 0;
+
+    var ms =
+        morph.update(
+            dt,
+            time,
+            session.motion.speed(),
+            napping,
+            thinking,
+            speaking,
+            curious,
+            sit.wingmanMode,
+            happySocial,
+            threatOrAiming,
+            inspectingTarget);
+
     // State-reactive glowing edges
     float er, eg, eb;
     if (sit.lightningStartleTicks > 0) {
@@ -193,33 +223,33 @@ public final class CompanionRenderer {
       eg = intensity * 0.68f;
       eb = intensity;
     }
-    renderEdges(poses, light, 0.121f, 0.009f, er, eg, eb, 1.0f);
-    renderCornerPods(poses, light, time, sleepBreath, napping, thinking, sit.wingmanMode, er, eg, eb);
-    renderSideWinglets(poses, light, time, napping || sit.sneaking, er, eg, eb);
-    renderHat(poses, light, sit.activeHat, time, intensity);
 
-    float sensorScale =
-        napping ? (float) (0.20 + (sleepBreath + 1.0) * 0.06) : 1.0f;
+    poses.scale(ms.stretchXZ(), ms.squashY(), ms.stretchXZ() + ms.aeroDelta() * 0.14f);
+
+    float sensorScale = napping ? (float) (0.20 + (sleepBreath + 1.0) * 0.06) : 1.0f;
     float sr = (errorVisual ? intensity : thinking ? intensity : intensity * 0.90f) * sensorScale;
-    float sg = (errorVisual ? intensity * 0.35f : thinking ? intensity * 0.78f : intensity * 0.97f) * sensorScale;
-    float sb = (errorVisual ? intensity * 0.22f : thinking ? intensity * 0.40f : intensity) * sensorScale;
-    // Four equal sensor tiles: close into thin horizontal sleeping slits when powered down!
-    float eyeHalfH = napping ? 0.0035f : 0.022f;
-    for (float x : SENSOR_OFFSETS)
-      for (float y : SENSOR_OFFSETS)
-        box(
-            poses,
-            light,
-            x - 0.022f,
-            y - eyeHalfH,
-            0.119f,
-            x + 0.022f,
-            y + eyeHalfH,
-            0.125f,
-            sr,
-            sg,
-            sb,
-            1);
+    float sg =
+        (errorVisual ? intensity * 0.35f : thinking ? intensity * 0.78f : intensity * 0.97f)
+            * sensorScale;
+    float sb =
+        (errorVisual ? intensity * 0.22f : thinking ? intensity * 0.40f : intensity) * sensorScale;
+
+    renderNeoFluidBody(
+        poses,
+        light,
+        time,
+        sleepBreath,
+        napping,
+        thinking,
+        ms,
+        sit.activeHat,
+        intensity,
+        er,
+        eg,
+        eb,
+        sr,
+        sg,
+        sb);
     buffers.endBatch(type);
     poses.popPose();
     if (settings.showTargetBeam) {
@@ -270,32 +300,48 @@ public final class CompanionRenderer {
         poses.scale(bx, by, bx);
       }
       var v = buffers.getBuffer(type);
-      box(poses, v, -0.118f, -0.118f, -0.118f, 0.118f, 0.118f, 0.118f, 0.032f, 0.042f, 0.058f, 1f);
       float er = pThink ? intensity : pSpeak ? intensity * 0.65f : pNap ? intensity * 0.14f : intensity * 0.22f;
       float eg = pThink ? intensity * 0.54f : pSpeak ? intensity * 0.96f : pNap ? intensity * 0.34f : intensity * 0.68f;
       float eb = pThink ? intensity * 0.10f : pSpeak ? intensity : pNap ? intensity * 0.72f : intensity;
-      renderEdges(poses, v, 0.121f, 0.009f, er, eg, eb, 1.0f);
-      renderCornerPods(poses, v, time, sleepBreath, pNap, pThink, "Wingman".equals(peer.state), er, eg, eb);
-      renderSideWinglets(poses, v, time, pNap, er, eg, eb);
-      renderHat(poses, v, peer.hat, time, intensity);
-
-      float eyeHalfH = pNap ? 0.0035f : 0.022f;
+      boolean pWingman = "Wingman".equals(peer.state);
+      boolean pCurious = "Curious".equals(peer.state) || "Guiding".equals(peer.state);
+      var peerMs =
+          new dev.qb2.rendering.animation.MorphState.Snapshot(
+              pThink ? 1.0f : pCurious ? 0.55f : 0f,
+              pSpeak ? 0.95f : pCurious ? 0.65f : 0.15f,
+              pWingman ? 1.0f : 0f,
+              pNap ? 1.0f : 0f,
+              pWingman ? -0.028f : 0f,
+              0f,
+              pNap ? 0.84f : 1.0f,
+              pNap ? 1.10f : 1.0f,
+              pNap
+                  ? dev.qb2.rendering.animation.MorphState.EyeMood.SLEEP_SLITS
+                  : pThink
+                      ? dev.qb2.rendering.animation.MorphState.EyeMood.ORBIT_SPINNER
+                      : pSpeak
+                          ? dev.qb2.rendering.animation.MorphState.EyeMood.VOICE_WAVE
+                          : pCurious
+                              ? dev.qb2.rendering.animation.MorphState.EyeMood.CURIOUS_ASYM
+                              : dev.qb2.rendering.animation.MorphState.EyeMood.NEUTRAL_BLINK);
+      poses.scale(peerMs.stretchXZ(), peerMs.squashY(), peerMs.stretchXZ() + peerMs.aeroDelta() * 0.14f);
       float sScale = pNap ? 0.26f : 1.0f;
-      for (float x : SENSOR_OFFSETS)
-        for (float y : SENSOR_OFFSETS)
-          box(
-              poses,
-              v,
-              x - 0.022f,
-              y - eyeHalfH,
-              0.119f,
-              x + 0.022f,
-              y + eyeHalfH,
-              0.125f,
-              intensity * 0.90f * sScale,
-              intensity * 0.97f * sScale,
-              intensity * sScale,
-              1f);
+      renderNeoFluidBody(
+          poses,
+          v,
+          time,
+          sleepBreath,
+          pNap,
+          pThink,
+          peerMs,
+          peer.hat,
+          intensity,
+          er,
+          eg,
+          eb,
+          intensity * 0.90f * sScale,
+          intensity * 0.97f * sScale,
+          intensity * sScale);
       buffers.endBatch(type);
       poses.popPose();
 
@@ -409,8 +455,394 @@ public final class CompanionRenderer {
   private static final float[] CORNER_SIGNS = {-1f, 1f};
 
   /**
-   * 8 articulated corner pods that pull inward when sleeping and expand/breathe outward along the
-   * corner diagonals when thinking or active.
+   * Renders Cubey's Neo-Fluid / Sci-Fi morphing body:
+   * 1) Dual counter-rotating gyro-plasma core inside the cavity.
+   * 2) 6 magnetically floating split-shell plates that expand into an open hyper-tesseract or
+   *    bulge with stepped sub-domes into an organic ferrofluid blob.
+   * 3) 8 detachable corner shards that orbit, breathe, or retract into soft energy droplets.
+   * 4) Aerodynamic delta winglets + 3-node trailing ion afterburner in fast flight.
+   * 5) 7-mode expressive front-plate Neo-Eyes.
+   */
+  private static void renderNeoFluidBody(
+      PoseStack poses,
+      VertexConsumer v,
+      double time,
+      double sleepBreath,
+      boolean napping,
+      boolean thinking,
+      dev.qb2.rendering.animation.MorphState.Snapshot ms,
+      String hat,
+      float intensity,
+      float er,
+      float eg,
+      float eb,
+      float sr,
+      float sg,
+      float sb) {
+    float open = ms.tesseractOpen();
+    float blob = ms.blobMorph();
+    float aero = ms.aeroDelta();
+    float sleep = ms.mochiSleep();
+
+    // 1. Retractable inner dark chassis + Dual counter-rotating Gyro-Plasma Core
+    float coreHalf = 0.098f - open * 0.026f - blob * 0.022f + sleep * 0.014f;
+    box(
+        poses,
+        v,
+        -coreHalf,
+        -coreHalf,
+        -coreHalf,
+        coreHalf,
+        coreHalf,
+        coreHalf,
+        0.028f + er * 0.08f,
+        0.038f + eg * 0.08f,
+        0.054f + eb * 0.08f,
+        1f);
+
+    if (!napping && (open > 0.04f || blob > 0.12f)) {
+      renderInnerGyroCore(poses, v, time, open, blob, er, eg, eb);
+    }
+
+    // 2. Six magnetically floating split-shell plates + organic liquid-harmonic blob sub-domes
+    float frontPlateZ =
+        renderMagneticSplitShell(poses, v, time, open, blob, aero, sleep, ms.springLagZ(), ms.springLagY(), er, eg, eb);
+
+    // 3. Glowing energy frame / edge conduits (breathe outward with tesseract/blob expansion)
+    float edgeSpan = 0.120f + open * 0.022f - blob * 0.010f - sleep * 0.005f;
+    float edgeThick = 0.0085f * (1.0f - blob * 0.35f);
+    renderEdges(poses, v, edgeSpan, edgeThick, er, eg, eb, 1.0f);
+
+    // 4. Eight detachable orbiting corner shards
+    renderCornerPods(poses, v, time, sleepBreath, napping, thinking, ms, er, eg, eb);
+
+    // 5. Articulated flank winglets + 3-node aerodynamic ion trail
+    renderSideWinglets(poses, v, time, napping, ms, er, eg, eb);
+    if (aero > 0.12f && !napping) {
+      renderAeroIonTrail(poses, v, time, aero, ms.springLagZ(), er, eg, eb);
+    }
+
+    // 6. Floating 3D hat (tracks top shell plate height!)
+    float topHatOffset = open * 0.026f + blob * 0.014f - sleep * 0.008f;
+    poses.pushPose();
+    poses.translate(0, topHatOffset, ms.springLagZ() * 0.35f);
+    renderHat(poses, v, hat, time, intensity);
+    poses.popPose();
+
+    // 7. Expressive 7-mode Neo-Eyes mounted on the moving front shell plate
+    renderNeoEyes(poses, v, time, ms.eyeMood(), frontPlateZ, sr, sg, sb);
+  }
+
+  private static void renderInnerGyroCore(
+      PoseStack p,
+      VertexConsumer v,
+      double time,
+      float open,
+      float blob,
+      float er,
+      float eg,
+      float eb) {
+    float spinSpeed = (float) (time * (95.0 + open * 140.0));
+    float ringSize = 0.056f + open * 0.016f + blob * 0.010f;
+    // Outer gyro ring rotating around Y + X
+    p.pushPose();
+    p.mulPose(Axis.YP.rotationDegrees(spinSpeed));
+    p.mulPose(Axis.XP.rotationDegrees(spinSpeed * 0.7f));
+    renderEdges(p, v, ringSize, 0.008f, er, eg, eb, 1.0f);
+    p.popPose();
+
+    // Inner counter-rotating plasma core cube
+    float pulse = (float) (0.032 + Math.sin(time * 7.5) * 0.007 * (1.0 + blob));
+    p.pushPose();
+    p.mulPose(Axis.ZP.rotationDegrees(-spinSpeed * 1.1f));
+    p.mulPose(Axis.YP.rotationDegrees(-spinSpeed * 0.8f));
+    box(
+        p,
+        v,
+        -pulse,
+        -pulse,
+        -pulse,
+        pulse,
+        pulse,
+        pulse,
+        Math.min(1f, er * 1.15f + 0.15f),
+        Math.min(1f, eg * 1.15f + 0.15f),
+        Math.min(1f, eb * 1.15f + 0.15f),
+        1f);
+    p.popPose();
+  }
+
+  /**
+   * Renders the 6 floating magnetic shell plates (+Z, -Z, -X, +X, +Y, -Y) and their stepped
+   * organic blob sub-domes. Returns the outer Z coordinate of the front plate for eye mounting.
+   */
+  private static float renderMagneticSplitShell(
+      PoseStack p,
+      VertexConsumer v,
+      double time,
+      float open,
+      float blob,
+      float aero,
+      float sleep,
+      float lagZ,
+      float lagY,
+      float er,
+      float eg,
+      float eb) {
+    float plateSpan = 0.088f - open * 0.008f - blob * 0.012f + sleep * 0.024f;
+    float baseDist = 0.100f + open * 0.028f - sleep * 0.006f;
+    float thick = 0.018f;
+
+    float pr = 0.036f + er * 0.10f;
+    float pg = 0.046f + eg * 0.10f;
+    float pb = 0.064f + eb * 0.10f;
+
+    // Harmonic liquid waves for each face in Blob mode
+    float wFront = (float) (Math.sin(time * 6.4) * 0.014 * blob);
+    float wBack = (float) (Math.sin(time * 6.4 + 2.1) * 0.014 * blob);
+    float wLeft = (float) (Math.sin(time * 6.4 + 1.05) * 0.016 * blob);
+    float wRight = (float) (Math.sin(time * 6.4 + 3.15) * 0.016 * blob);
+    float wTop = (float) (Math.sin(time * 6.4 + 4.2) * 0.015 * blob);
+    float wBot = (float) (Math.sin(time * 6.4 + 5.25) * 0.012 * blob);
+
+    // 1. Front Plate (+Z) - pushes forward in aero mode
+    float frontZ0 = baseDist + wFront + aero * 0.016f;
+    float frontZ1 = frontZ0 + thick;
+    box(p, v, -plateSpan, -plateSpan, frontZ0, plateSpan, plateSpan, frontZ1, pr, pg, pb, 1f);
+
+    // 2. Back Plate (-Z) - trails with spring lag
+    float backZ1 = -(baseDist + wBack) + lagZ * 0.7f;
+    float backZ0 = backZ1 - thick;
+    box(p, v, -plateSpan, -plateSpan, backZ0, plateSpan, plateSpan, backZ1, pr, pg, pb, 1f);
+
+    // 3. Left & Right Plates (-X, +X) - flare out & sweep back in aero/tesseract mode
+    float sideX = baseDist + aero * 0.012f;
+    float sideLagZ = lagZ * 0.55f - aero * 0.015f;
+    box(
+        p,
+        v,
+        -(sideX + wLeft + thick),
+        -plateSpan + lagY * 0.4f,
+        -plateSpan + sideLagZ,
+        -(sideX + wLeft),
+        plateSpan + lagY * 0.4f,
+        plateSpan + sideLagZ,
+        pr,
+        pg,
+        pb,
+        1f);
+    box(
+        p,
+        v,
+        sideX + wRight,
+        -plateSpan + lagY * 0.4f,
+        -plateSpan + sideLagZ,
+        sideX + wRight + thick,
+        plateSpan + lagY * 0.4f,
+        plateSpan + sideLagZ,
+        pr,
+        pg,
+        pb,
+        1f);
+
+    // 4. Top & Bottom Plates (+Y, -Y)
+    float topY0 = baseDist + wTop + lagY * 0.5f;
+    box(
+        p,
+        v,
+        -plateSpan,
+        topY0,
+        -plateSpan + lagZ * 0.35f,
+        plateSpan,
+        topY0 + thick,
+        plateSpan + lagZ * 0.35f,
+        pr,
+        pg,
+        pb,
+        1f);
+    float botY1 = -(baseDist + wBot);
+    box(p, v, -plateSpan, botY1 - thick, -plateSpan, plateSpan, botY1, plateSpan, pr, pg, pb, 1f);
+
+    // 5. Organic Fluid-Blob Sub-Domes (rounds out the 6 faces into a soft pulsing blob!)
+    if (blob > 0.18f && sleep < 0.5f) {
+      float domeSpan = plateSpan * 0.64f;
+      float domeH = 0.013f * blob;
+      float dr = 0.048f + er * 0.26f;
+      float dg = 0.062f + eg * 0.26f;
+      float db = 0.088f + eb * 0.26f;
+      // Lateral & vertical soft domes
+      box(
+          p,
+          v,
+          -(sideX + wLeft + thick + domeH),
+          -domeSpan,
+          -domeSpan + sideLagZ,
+          -(sideX + wLeft + thick),
+          domeSpan,
+          domeSpan + sideLagZ,
+          dr,
+          dg,
+          db,
+          1f);
+      box(
+          p,
+          v,
+          sideX + wRight + thick,
+          -domeSpan,
+          -domeSpan + sideLagZ,
+          sideX + wRight + thick + domeH,
+          domeSpan,
+          domeSpan + sideLagZ,
+          dr,
+          dg,
+          db,
+          1f);
+      box(
+          p,
+          v,
+          -domeSpan,
+          topY0 + thick,
+          -domeSpan,
+          domeSpan,
+          topY0 + thick + domeH,
+          domeSpan,
+          dr,
+          dg,
+          db,
+          1f);
+      box(
+          p,
+          v,
+          -domeSpan,
+          -domeSpan,
+          backZ0 - domeH,
+          domeSpan,
+          domeSpan,
+          backZ0,
+          dr,
+          dg,
+          db,
+          1f);
+    }
+
+    return frontZ1;
+  }
+
+  /**
+   * 7-mode expressive front-plate Neo-Eyes:
+   * SLEEP_SLITS, HAPPY_ARCS (^ ^), CURIOUS_ASYM (o O), FOCUS_VISOR (\ /),
+   * ORBIT_SPINNER (revolving neural nodes), VOICE_WAVE (audio equalizer), NEUTRAL_BLINK.
+   */
+  private static void renderNeoEyes(
+      PoseStack p,
+      VertexConsumer v,
+      double time,
+      dev.qb2.rendering.animation.MorphState.EyeMood mood,
+      float frontZ,
+      float sr,
+      float sg,
+      float sb) {
+    float z0 = frontZ + 0.001f;
+    float z1 = frontZ + 0.007f;
+
+    switch (mood) {
+      case SLEEP_SLITS -> {
+        float h = 0.0035f;
+        for (float x : SENSOR_OFFSETS)
+          for (float y : SENSOR_OFFSETS)
+            box(p, v, x - 0.022f, y - h, z0, x + 0.022f, y + h, z1, sr, sg, sb, 1f);
+      }
+      case HAPPY_ARCS -> {
+        // Two cheerful upward chevron arcs (^ ^) on left and right eye columns
+        for (float cx : SENSOR_OFFSETS) {
+          // Peak of the happy arc
+          box(p, v, cx - 0.016f, 0.028f, z0, cx + 0.016f, 0.044f, z1, sr, sg, sb, 1f);
+          // Left & right downward tips of each happy arc
+          box(p, v, cx - 0.028f, 0.010f, z0, cx - 0.012f, 0.030f, z1, sr, sg, sb, 1f);
+          box(p, v, cx + 0.012f, 0.010f, z0, cx + 0.028f, 0.030f, z1, sr, sg, sb, 1f);
+          // Warm lower cheek glow dots
+          box(
+              p,
+              v,
+              cx - 0.018f,
+              -0.056f,
+              z0,
+              cx + 0.018f,
+              -0.042f,
+              z1,
+              Math.min(1f, sr * 1.1f),
+              sg * 0.78f,
+              sb * 0.85f,
+              1f);
+        }
+      }
+      case CURIOUS_ASYM -> {
+        // Left column: focused narrow scan sensors; Right column: wide zoomed lens (o_O)
+        for (float y : SENSOR_OFFSETS) {
+          // Left (-0.064): narrow horizontal scan slit
+          box(p, v, -0.086f, y - 0.012f, z0, -0.042f, y + 0.012f, z1, sr, sg, sb, 1f);
+          // Right (+0.064): expanded high-aperture sensor + inner bright pupil
+          float zoom = y > 0 ? 0.030f : 0.024f;
+          box(p, v, 0.064f - zoom, y - zoom, z0, 0.064f + zoom, y + zoom, z1, sr, sg, sb, 1f);
+        }
+      }
+      case FOCUS_VISOR -> {
+        // Sharp tactical V-slanted visor bars (\ /)
+        box(p, v, -0.090f, 0.036f, z0, -0.056f, 0.056f, z1, sr, sg, sb, 1f);
+        box(p, v, -0.062f, 0.020f, z0, -0.026f, 0.040f, z1, sr, sg, sb, 1f);
+        box(p, v, 0.026f, 0.020f, z0, 0.062f, 0.040f, z1, sr, sg, sb, 1f);
+        box(p, v, 0.056f, 0.036f, z0, 0.090f, 0.056f, z1, sr, sg, sb, 1f);
+        // Lower lock-on reticles
+        for (float x : SENSOR_OFFSETS)
+          box(p, v, x - 0.020f, -0.066f, z0, x + 0.020f, -0.048f, z1, sr, sg, sb, 1f);
+      }
+      case ORBIT_SPINNER -> {
+        // 4 sensor nodes revolving around the front plate center like a neural loading ring
+        for (int i = 0; i < 4; i++) {
+          double ang = time * 5.8 + i * (Math.PI / 2.0);
+          float rx = (float) (Math.cos(ang) * 0.064);
+          float ry = (float) (Math.sin(ang) * 0.064);
+          float hs = (i % 2 == 0) ? 0.022f : 0.017f;
+          box(p, v, rx - hs, ry - hs, z0, rx + hs, ry + hs, z1, sr, sg, sb, 1f);
+        }
+      }
+      case VOICE_WAVE -> {
+        // Upper eyes stay attentive while lower sensors pulse as a 4-bar audio waveform equalizer
+        for (float x : SENSOR_OFFSETS) {
+          box(p, v, x - 0.022f, 0.042f, z0, x + 0.022f, 0.084f, z1, sr, sg, sb, 1f);
+        }
+        float[] barX = {-0.072f, -0.024f, 0.024f, 0.072f};
+        for (int i = 0; i < 4; i++) {
+          float amp = (float) (0.012 + Math.abs(Math.sin(time * 13.5 + i * 1.1)) * 0.032);
+          box(
+              p,
+              v,
+              barX[i] - 0.013f,
+              -0.058f - amp,
+              z0,
+              barX[i] + 0.013f,
+              -0.058f + amp,
+              z1,
+              sr,
+              sg,
+              sb,
+              1f);
+        }
+      }
+      default -> {
+        // NEUTRAL_BLINK: natural 120ms blink every ~5.5 seconds
+        double blinkCycle = time % 5.5;
+        float eyeHalfH = (blinkCycle > 5.36) ? 0.004f : 0.022f;
+        for (float x : SENSOR_OFFSETS)
+          for (float y : SENSOR_OFFSETS)
+            box(p, v, x - 0.022f, y - eyeHalfH, z0, x + 0.022f, y + eyeHalfH, z1, sr, sg, sb, 1f);
+      }
+    }
+  }
+
+  /**
+   * 8 detachable corner shards that pull inward when sleeping, orbit & float outward when thinking
+   * or morphing into a blob, and trail behind with spring inertia.
    */
   private static void renderCornerPods(
       PoseStack p,
@@ -419,10 +851,13 @@ public final class CompanionRenderer {
       double sleepBreath,
       boolean napping,
       boolean thinking,
-      boolean wingman,
+      dev.qb2.rendering.animation.MorphState.Snapshot ms,
       float er,
       float eg,
       float eb) {
+    float open = ms.tesseractOpen();
+    float blob = ms.blobMorph();
+    float aero = ms.aeroDelta();
     int idx = 0;
     for (float sx : CORNER_SIGNS) {
       for (float sy : CORNER_SIGNS) {
@@ -430,18 +865,25 @@ public final class CompanionRenderer {
           double phase = idx++ * 0.8;
           float pullOut;
           if (napping) {
-            pullOut = (float) (0.002 + (sleepBreath + 1.0) * 0.0025);
-          } else if (thinking) {
-            pullOut = (float) (0.013 + (Math.sin(time * 5.2 + phase) + 1.0) * 0.0065);
+            pullOut = (float) (0.001 + (sleepBreath + 1.0) * 0.002);
           } else {
-            pullOut = (float) (0.005 + (Math.sin(time * 1.8 + phase) + 1.0) * 0.003);
+            float harmonic = (float) ((Math.sin(time * (thinking ? 5.4 : 2.2) + phase) + 1.0) * 0.5);
+            pullOut = 0.005f + open * (0.022f + harmonic * 0.014f) + blob * (0.008f + harmonic * 0.012f);
           }
-          float sweepZ = (wingman && sz < 0) ? -0.012f : 0f;
-          float cx = sx * (0.104f + pullOut);
-          float cy = sy * (0.104f + pullOut);
+
+          // Orbital swirl offset when tesseract or blob mode is active
+          float swirlX =
+              napping ? 0f : (float) (Math.cos(time * 3.8 + phase) * 0.014 * (open + blob * 0.5));
+          float swirlY =
+              napping ? 0f : (float) (Math.sin(time * 3.8 + phase) * 0.014 * (open + blob * 0.5));
+          float sweepZ = (sz < 0) ? (ms.springLagZ() * 0.9f - aero * 0.022f) : (ms.springLagZ() * 0.3f);
+
+          float cx = sx * (0.104f + pullOut) + swirlX;
+          float cy = sy * (0.104f + pullOut) + swirlY + (sz < 0 ? ms.springLagY() * 0.6f : 0f);
           float cz = sz * (0.104f + pullOut) + sweepZ;
-          float hs = 0.025f;
-          // Dark metallic outer corner shell
+
+          // In high Blob mode, shrink the boxy metallic corner shell so the energy droplet dominates
+          float hs = 0.024f * (1.0f - blob * 0.42f);
           box(
               p,
               v,
@@ -451,15 +893,15 @@ public final class CompanionRenderer {
               cx + hs,
               cy + hs,
               cz + hs,
-              0.055f + er * 0.18f,
-              0.070f + eg * 0.18f,
-              0.095f + eb * 0.18f,
+              0.055f + er * 0.22f,
+              0.070f + eg * 0.22f,
+              0.095f + eb * 0.22f,
               1f);
-          // Glowing inner energy core node visible when corner pods expand outward
-          float cs = 0.013f;
-          float icx = sx * (0.092f + pullOut * 0.45f);
-          float icy = sy * (0.092f + pullOut * 0.45f);
-          float icz = sz * (0.092f + pullOut * 0.45f);
+          // Glowing inner energy core droplet
+          float cs = 0.014f + blob * 0.005f + open * 0.003f;
+          float icx = sx * (0.092f + pullOut * 0.65f) + swirlX * 0.8f;
+          float icy = sy * (0.092f + pullOut * 0.65f) + swirlY * 0.8f;
+          float icz = sz * (0.092f + pullOut * 0.65f) + sweepZ * 0.8f;
           box(
               p,
               v,
@@ -469,47 +911,100 @@ public final class CompanionRenderer {
               icx + cs,
               icy + cs,
               icz + cs,
-              er * 0.9f,
-              eg * 0.9f,
-              eb * 0.9f,
+              er * 0.95f,
+              eg * 0.95f,
+              eb * 0.95f,
               1f);
         }
       }
     }
   }
 
-  /** Two articulated side sensor winglets/fins that breathe in and out on the cube's flanks. */
+  /**
+   * Two articulated side sensor winglets/fins that flare out into swept-back delta wings during
+   * fast flight or wingman mode.
+   */
   private static void renderSideWinglets(
-      PoseStack p, VertexConsumer v, double time, boolean folded, float er, float eg, float eb) {
-    float span = folded ? 0.004f : (float) (0.014 + Math.sin(time * 2.1) * 0.005);
-    float drop = folded ? -0.012f : 0.005f;
+      PoseStack p,
+      VertexConsumer v,
+      double time,
+      boolean folded,
+      dev.qb2.rendering.animation.MorphState.Snapshot ms,
+      float er,
+      float eg,
+      float eb) {
+    float aero = ms.aeroDelta();
+    float open = ms.tesseractOpen();
+    float span =
+        folded
+            ? 0.004f
+            : (float) (0.016 + open * 0.014 + aero * 0.042 + Math.sin(time * 2.4) * 0.006);
+    float drop = folded ? -0.012f : 0.004f - aero * 0.008f;
+    float sweepBack = ms.springLagZ() * 0.6f - aero * 0.028f;
+    float innerX = 0.118f + open * 0.022f;
     // Left & right flank winglets
     box(
         p,
         v,
-        -0.122f - span,
+        -innerX - span,
         -0.028f + drop,
-        -0.045f,
-        -0.118f,
+        -0.048f + sweepBack,
+        -innerX,
         0.028f + drop,
-        0.045f,
-        er * 0.75f,
-        eg * 0.75f,
-        eb * 0.75f,
+        0.042f + sweepBack * 0.4f,
+        er * 0.82f,
+        eg * 0.82f,
+        eb * 0.82f,
         1f);
     box(
         p,
         v,
-        0.118f,
+        innerX,
         -0.028f + drop,
-        -0.045f,
-        0.122f + span,
+        -0.048f + sweepBack,
+        innerX + span,
         0.028f + drop,
-        0.045f,
-        er * 0.75f,
-        eg * 0.75f,
-        eb * 0.75f,
+        0.042f + sweepBack * 0.4f,
+        er * 0.82f,
+        eg * 0.82f,
+        eb * 0.82f,
         1f);
+  }
+
+  /**
+   * 3-node detached Ion Afterburner Trail that streams behind Cubey when flying rapidly or in
+   * Wingman formation.
+   */
+  private static void renderAeroIonTrail(
+      PoseStack p,
+      VertexConsumer v,
+      double time,
+      float aero,
+      float lagZ,
+      float er,
+      float eg,
+      float eb) {
+    for (int i = 1; i <= 3; i++) {
+      float distBack = -0.135f - i * (0.048f + aero * 0.026f) + lagZ * i * 0.5f;
+      float waveY = (float) (Math.sin(time * 14.0 - i * 1.3) * 0.012 * aero);
+      float waveX = (float) (Math.cos(time * 11.0 - i * 1.1) * 0.010 * aero);
+      float hs = (0.024f - i * 0.005f) * aero;
+      if (hs <= 0.002f) continue;
+      float fade = (1.0f - i * 0.22f);
+      box(
+          p,
+          v,
+          waveX - hs,
+          waveY - hs,
+          distBack - hs,
+          waveX + hs,
+          waveY + hs,
+          distBack + hs,
+          er * fade,
+          eg * fade,
+          eb * fade,
+          1f);
+    }
   }
 
   private static void renderHat(
