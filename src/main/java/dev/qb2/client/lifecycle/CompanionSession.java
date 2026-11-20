@@ -45,6 +45,10 @@ public final class CompanionSession {
   public boolean pendingGentlePlace;
   public int catchVisitTicks;
   public Point catchVisitPos;
+  public String serverTaskType = "";
+  public Point serverTaskPos;
+  public int serverTaskTicks;
+  public int combatActionTicks;
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
   public volatile boolean apiBackoff;
@@ -124,6 +128,90 @@ public final class CompanionSession {
     action = "rest";
     actionUntil = tick + 2400;
     if (!wasSleeping) pendingSleepSound = true;
+  }
+
+  public void applyServerTask(dev.qb2.network.CubeyNetwork.S2CTaskVisualPayload payload) {
+    if (payload == null) return;
+    wakeUp();
+    String type = payload.taskType();
+    Point pos = new Point(payload.x(), payload.y(), payload.z());
+    int dur = Math.clamp(payload.durationTicks(), 12, 100);
+    switch (type) {
+      case "harvest" -> {
+        serverTaskType = "harvest";
+        serverTaskPos = pos.add(new Point(0, 0.35, 0));
+        serverTaskTicks = dur;
+        bubbles.emote("🌾", tick);
+      }
+      case "craft_start", "cook_start" -> {
+        serverTaskType = type;
+        serverTaskPos = pos.add(new Point(0, 0.45, 0));
+        serverTaskTicks = dur;
+        if ("cook_start".equals(type)) situational.activeHat = "chef";
+        String label = shortCraftLabel(payload.itemId());
+        bubbles.emote(("cook_start".equals(type) ? "🍳 " : "✦ ") + label + "...", tick);
+      }
+      case "craft_done" -> {
+        serverTaskType = "";
+        serverTaskPos = null;
+        serverTaskTicks = 0;
+        situational.celebrateTicks = 34;
+        String label = shortCraftLabel(payload.itemId());
+        bubbles.emote("🍞 " + label + "!", tick);
+      }
+      case "torch" -> {
+        serverTaskType = "torch";
+        serverTaskPos = pos.add(new Point(0, 0.35, 0));
+        serverTaskTicks = dur;
+        bubbles.emote("🔥", tick);
+      }
+      case "combat_dash" -> {
+        serverTaskType = "combat_dash";
+        serverTaskPos = pos;
+        serverTaskTicks = 14;
+        combatActionTicks = 18;
+        bubbles.emote("⚔", tick);
+      }
+      case "combat_shoot" -> {
+        combatActionTicks = 16;
+        bubbles.emote("🏹", tick);
+      }
+      case "combat_shield" -> {
+        combatActionTicks = 22;
+        bubbles.emote("🛡", tick);
+      }
+      case "combat_heal" -> {
+        situational.celebrateTicks = 28;
+        bubbles.emote("♥ Heilung!", tick);
+      }
+      case "combat_zap" -> {
+        combatActionTicks = 16;
+        bubbles.emote("✦ Zap!", tick);
+      }
+      case "combat_flash" -> {
+        combatActionTicks = 16;
+        bubbles.emote("☀ Blitz!", tick);
+      }
+      default -> {}
+    }
+  }
+
+  private static String shortCraftLabel(String itemId) {
+    if (itemId == null || itemId.isBlank()) return "Craft";
+    return switch (itemId) {
+      case "minecraft:bread" -> "Brot";
+      case "minecraft:cookie" -> "Kekse";
+      case "minecraft:pumpkin_pie" -> "Kuchen";
+      case "minecraft:mushroom_stew" -> "Suppe";
+      case "minecraft:torch" -> "Fackeln";
+      case "minecraft:cooked_beef" -> "Steak";
+      case "minecraft:cooked_porkchop" -> "Braten";
+      case "minecraft:cooked_chicken" -> "Hähnchen";
+      case "minecraft:cooked_mutton" -> "Lamm";
+      case "minecraft:baked_potato" -> "Kartoffel";
+      case "minecraft:cooked_cod", "minecraft:cooked_salmon" -> "Fisch";
+      default -> "Craft";
+    };
   }
 
   public void wakeUp() {
@@ -278,6 +366,17 @@ public final class CompanionSession {
       situational.pendingEmote = "";
     }
     if (catchVisitTicks > 0) catchVisitTicks--;
+    if (serverTaskTicks > 0) {
+      serverTaskTicks--;
+      if ("cook_start".equals(serverTaskType)) {
+        situational.activeHat = "chef";
+      }
+      if (serverTaskTicks == 0) {
+        serverTaskType = "";
+        serverTaskPos = null;
+      }
+    }
+    if (combatActionTicks > 0) combatActionTicks--;
     if (situational.concernTicks > 0 || situational.threatTicks > 0 || situational.celebrateTicks > 0) {
       wakeUp();
     }
@@ -497,6 +596,20 @@ public final class CompanionSession {
       flightMode = "Curious";
       state = "Curious";
       motion.tickSmoothFollow(catchVisitPos, catchVisitPos, 4.0, free, null);
+    } else if (serverTaskTicks > 0 && serverTaskPos != null) {
+      double orbitAngle = tick * 0.24;
+      Point taskTarget =
+          ("craft_start".equals(serverTaskType) || "cook_start".equals(serverTaskType))
+              ? serverTaskPos.add(
+                  new Point(
+                      Math.cos(orbitAngle) * 0.42,
+                      Math.sin(tick * 0.35) * 0.12,
+                      Math.sin(orbitAngle) * 0.42))
+              : serverTaskPos;
+      flightGoal = taskTarget;
+      flightMode = "Exploring";
+      state = "Exploring";
+      motion.tickSmoothFollow(player, taskTarget, Math.max(settings.exploreRadius, 8.0), free, null);
     } else if (guideDestination != null) {
       double distToDest = player.distance(guideDestination);
       if (distToDest <= 3.0) {

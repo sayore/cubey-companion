@@ -108,8 +108,97 @@ public final class ClientController {
             renderer.render(e, session, configuration.settings());
         });
     NeoForge.EVENT_BUS.addListener((RenderGuiEvent.Post e) -> DebugOverlay.render(e, this));
+    NeoForge.EVENT_BUS.addListener(dev.qb2.ui.overlay.CubeyInventoryOverlay::onScreenRender);
+    NeoForge.EVENT_BUS.addListener(dev.qb2.ui.overlay.CubeyInventoryOverlay::onMousePressed);
     NeoForge.EVENT_BUS.addListener(
         (RegisterClientCommandsEvent e) -> QB2ClientCommands.register(e, this));
+    dev.qb2.network.CubeyNetwork.clientPackSyncReceiver =
+        dev.qb2.ui.overlay.CubeyInventoryOverlay::updateSync;
+    dev.qb2.network.CubeyNetwork.clientTaskVisualReceiver =
+        payload -> {
+          if (session == null) return;
+          session.applyServerTask(payload);
+          if ("craft_done".equals(payload.taskType()) || "combat_heal".equals(payload.taskType())) {
+            audio.play(
+                mc,
+                configuration.settings(),
+                session.motion.position(),
+                dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
+          } else if ("harvest".equals(payload.taskType()) || "torch".equals(payload.taskType())) {
+            audio.play(
+                mc,
+                configuration.settings(),
+                session.motion.position(),
+                dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+          }
+        };
+    dev.qb2.network.CubeyNetwork.clientPeerInteractReceiver =
+        payload -> {
+          if (session == null || player == null) return;
+          if (player.getUUID().equals(payload.targetOwnerId())) {
+            session.wakeUp();
+            switch (payload.action()) {
+              case "pet" -> {
+                session.situational.celebrateTicks = 30;
+                session.situational.greetingTicks = 25;
+                session.bubbles.emote("♥ " + payload.actorName(), session.tick);
+                audio.play(
+                    mc,
+                    configuration.settings(),
+                    session.motion.position(),
+                    dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
+              }
+              case "poke" -> {
+                session.situational.greetingTicks = 22;
+                session.bubbles.emote("✦ " + payload.actorName() + "!", session.tick);
+                audio.play(
+                    mc,
+                    configuration.settings(),
+                    session.motion.position(),
+                    dev.qb2.rendering.audio.CompanionAudio.Cue.BOING);
+              }
+              case "treat" -> {
+                session.situational.celebrateTicks = 36;
+                session.bubbles.emote("🍪 ♥ " + payload.actorName(), session.tick);
+                audio.play(
+                    mc,
+                    configuration.settings(),
+                    session.motion.position(),
+                    dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY);
+              }
+              case "toss_back" -> {
+                if (mc.level != null) {
+                  var actor = mc.level.getPlayerByUUID(payload.actorId());
+                  Point from = session.motion.position();
+                  Point dir =
+                      actor != null
+                          ? dev.qb2.perception.world.WorldSensor.point(actor.getEyePosition())
+                              .subtract(from)
+                              .scale(-1.0)
+                          : new Point(0, 0.5, 0);
+                  Point launchDir =
+                      dir.length() > 0.1
+                          ? dir.unit().add(new Point(0, 0.35, 0)).unit()
+                          : new Point(0, 1, 0);
+                  session.grabThrow.launch(launchDir);
+                  session.bubbles.emote("✦ Ping-Pong!", session.tick);
+                  session.pendingWeeeeSound = true;
+                }
+              }
+              default -> {}
+            }
+          } else {
+            String emote =
+                switch (payload.action()) {
+                  case "pet" -> "♥";
+                  case "poke" -> "✦";
+                  case "treat" -> "🍪 ♥";
+                  case "toss_back" -> "✦!";
+                  default -> "";
+                };
+            session.peers.triggerPeerReaction(payload.targetOwnerId(), emote, session.tick);
+          }
+        };
     dev.qb2.network.CubeyNetwork.clientReceiver =
         payload -> {
           if (session == null || player == null) return;
@@ -159,6 +248,7 @@ public final class ClientController {
     keywords = List.of();
     lastAction = "none";
     lastPlayerPosition = null;
+    dev.qb2.ui.overlay.CubeyInventoryOverlay.reset();
   }
 
   private void tick(ClientTickEvent.Post event) {
@@ -299,7 +389,9 @@ public final class ClientController {
                   + "|"
                   + s.companionName
                   + "|"
-                  + s.cubeySkin,
+                  + s.cubeySkin
+                  + "|"
+                  + dev.qb2.ui.overlay.CubeyInventoryOverlay.equippedItemId(),
               sharedSpeech));
     }
     audio.tickSpeechVoice(mc, s, session.motion.position());
@@ -564,6 +656,57 @@ public final class ClientController {
                     + "). Use lookup_recipe or your modpack knowledge to explain what it does and how it is crafted or used."));
       }
       return;
+    }
+    // 1b. Direct interaction with OTHER players' Cubeys (Pet, High-Five/Poke, Give Treat, Ping-Pong!)
+    if (configuration.settings().multiplayerSync
+        && mc.getConnection() != null
+        && mc.getConnection().hasChannel(dev.qb2.network.CubeyNetwork.C2SPeerInteractPayload.TYPE)) {
+      Point eye = dev.qb2.perception.world.WorldSensor.point(mc.player.getEyePosition());
+      Point look = dev.qb2.perception.world.WorldSensor.point(mc.player.getLookAngle());
+      var hitPeer = session.peers.findRayHit(eye, look, 5.5, 0.38);
+      if (hitPeer.isPresent()) {
+        var peer = hitPeer.get();
+        var held = mc.player.getMainHandItem();
+        if (event.isAttack()
+            && !dev.qb2.companion.behavior.SituationalBehavior.isWeapon(held)
+            && !dev.qb2.companion.behavior.SituationalBehavior.isMiningTool(held)) {
+          event.setCanceled(true);
+          event.setSwingHand(true);
+          boolean fastThrow = peer.velocity.length() > 4.0;
+          String act = fastThrow ? "toss_back" : "poke";
+          net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+              new dev.qb2.network.CubeyNetwork.C2SPeerInteractPayload(peer.ownerId, act, ""));
+          session.peers.triggerPeerReaction(peer.ownerId, fastThrow ? "✦ Ping-Pong!" : "✦", session.tick);
+          audio.play(
+              mc,
+              configuration.settings(),
+              peer.renderPos,
+              dev.qb2.rendering.audio.CompanionAudio.Cue.BOING);
+          return;
+        }
+        if (!event.isAttack()) {
+          boolean isFood = !held.isEmpty() && held.getFoodProperties(mc.player) != null;
+          if (held.isEmpty() || isFood) {
+            event.setCanceled(true);
+            event.setSwingHand(true);
+            String act = isFood ? "treat" : "pet";
+            String itemId =
+                isFood ? BuiltInRegistries.ITEM.getKey(held.getItem()).toString() : "";
+            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                new dev.qb2.network.CubeyNetwork.C2SPeerInteractPayload(peer.ownerId, act, itemId));
+            session.peers.triggerPeerReaction(
+                peer.ownerId, isFood ? "🍪 ♥" : "♥", session.tick);
+            audio.play(
+                mc,
+                configuration.settings(),
+                peer.renderPos,
+                isFood
+                    ? dev.qb2.rendering.audio.CompanionAudio.Cue.DISCOVERY
+                    : dev.qb2.rendering.audio.CompanionAudio.Cue.HAPPY);
+            return;
+          }
+        }
+      }
     }
     session.situational.markWorking();
     if (!(mc.hitResult instanceof BlockHitResult hit)) return;

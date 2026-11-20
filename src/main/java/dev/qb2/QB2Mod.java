@@ -1,6 +1,7 @@
 package dev.qb2;
 
 import dev.qb2.network.CubeyNetwork;
+import dev.qb2.server.CubeyServerHelper;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
@@ -11,6 +12,7 @@ import org.slf4j.LoggerFactory;
 public final class QB2Mod {
   public QB2Mod(IEventBus modBus, ModContainer container) {
     modBus.addListener(CubeyNetwork::register);
+    CubeyServerHelper.register();
     if (FMLEnvironment.dist.isClient()) {
       try {
         ClientBootstrap.init(modBus, container);

@@ -26,9 +26,11 @@ public final class RemoteCompanionTracker {
     public String theme = "neo_cyan";
     public String skin = "obsidian";
     public String cubeyName = "Cubey";
+    public String equipItemId = "";
     public String speech = "";
     public long speechUntilTick;
     public long lastUpdateTick;
+    public int interactWobbleTicks;
 
     PeerCubey(UUID ownerId, String ownerName, Point initialPos, float yaw, long nowNanos) {
       this.ownerId = ownerId;
@@ -110,6 +112,7 @@ public final class RemoteCompanionTracker {
     peer.theme = parts.length >= 2 && !parts[1].isBlank() ? parts[1] : "neo_cyan";
     peer.cubeyName = parts.length >= 3 && !parts[2].isBlank() ? parts[2] : "Cubey";
     peer.skin = parts.length >= 4 && !parts[3].isBlank() ? parts[3] : "obsidian";
+    peer.equipItemId = parts.length >= 5 ? parts[4] : "";
     peer.lastUpdateTick = clientTick;
     String cleanSpeech = CubeySyncValidator.sanitizeSpeech(publicSpeech);
     if (!cleanSpeech.isBlank()) {
@@ -141,6 +144,35 @@ public final class RemoteCompanionTracker {
       }
     }
     return Optional.ofNullable(best);
+  }
+
+  public synchronized Optional<PeerCubey> findRayHit(
+      Point eye, Point lookUnit, double maxDistance, double hitRadius) {
+    if (eye == null || lookUnit == null || peers.isEmpty()) return Optional.empty();
+    PeerCubey best = null;
+    double bestAlong = maxDistance;
+    for (PeerCubey p : peers.values()) {
+      Point toPeer = p.renderPos.subtract(eye);
+      double along =
+          toPeer.x() * lookUnit.x() + toPeer.y() * lookUnit.y() + toPeer.z() * lookUnit.z();
+      if (along < 0.25 || along > bestAlong) continue;
+      Point closest = eye.add(lookUnit.scale(along));
+      if (closest.distance(p.renderPos) <= hitRadius) {
+        bestAlong = along;
+        best = p;
+      }
+    }
+    return Optional.ofNullable(best);
+  }
+
+  public synchronized void triggerPeerReaction(UUID ownerId, String emote, long clientTick) {
+    PeerCubey peer = peers.get(ownerId);
+    if (peer == null) return;
+    peer.interactWobbleTicks = 24;
+    if (emote != null && !emote.isBlank()) {
+      peer.speech = emote;
+      peer.speechUntilTick = clientTick + 55;
+    }
   }
 
   public synchronized List<PeerCubey> activePeers() {

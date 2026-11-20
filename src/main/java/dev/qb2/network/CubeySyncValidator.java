@@ -110,7 +110,30 @@ public final class CubeySyncValidator {
           : (safeHat + "|" + safeTheme + "|" + safeName);
     }
     String safeSkin = ALLOWED_SKINS.contains(parts[3]) ? parts[3] : "obsidian";
-    return safeHat + "|" + safeTheme + "|" + (safeName.isBlank() ? "Cubey" : safeName) + "|" + safeSkin;
+    String base =
+        safeHat
+            + "|"
+            + safeTheme
+            + "|"
+            + (safeName.isBlank() ? "Cubey" : safeName)
+            + "|"
+            + safeSkin;
+    if (parts.length == 4) return base;
+    String safeEquip = sanitizeItemId(parts[4]);
+    return safeEquip.isBlank() ? base : (base + "|" + safeEquip);
+  }
+
+  public static String sanitizeItemId(String raw) {
+    if (raw == null || raw.isBlank()) return "";
+    String clean = raw.trim().toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9_.:/-]", "");
+    return clean.length() > 64 ? clean.substring(0, 64) : clean;
+  }
+
+  public static final Set<String> ALLOWED_PEER_ACTIONS =
+      Set.of("pet", "poke", "treat", "toss_back");
+
+  public static String sanitizePeerAction(String raw) {
+    return raw != null && ALLOWED_PEER_ACTIONS.contains(raw) ? raw : "";
   }
 
   public static String sanitizeName(String raw) {

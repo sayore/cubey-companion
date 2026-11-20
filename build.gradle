@@ -2,7 +2,7 @@ plugins {
     id 'java-library'
     id 'net.neoforged.moddev' version '2.0.148'
 }
-version = '1.1.0'
+version = '1.2.0'
 group = 'dev.qb2'
 base { archivesName = 'qb2' }
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
@@ -55,6 +55,7 @@ tasks.register('serverJar', Jar) {
         include 'dev/qb2/QB2Mod.class'
         include 'dev/qb2/QB2Mod$*.class'
         include 'dev/qb2/network/**'
+        include 'dev/qb2/server/**'
         include 'dev/qb2/companion/movement/Point.class'
         include 'META-INF/**'
         include 'pack.mcmeta'

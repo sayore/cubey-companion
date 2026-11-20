@@ -77,6 +77,27 @@ public final class DebugOverlay {
         event.getGuiGraphics().drawString(mc.font, hint, cx - tw / 2, cy, 0xFFB8ECFF);
       }
     }
+    // Sneak + Looking at another player's Cubey -> compact quick-info card
+    if (settings.multiplayerSync && mc.player != null && mc.player.isCrouching() && mc.screen == null) {
+      var eye = dev.qb2.perception.world.WorldSensor.point(mc.player.getEyePosition());
+      var look = dev.qb2.perception.world.WorldSensor.point(mc.player.getLookAngle());
+      var hitPeer = session.peers.findRayHit(eye, look, 6.0, 0.42);
+      if (hitPeer.isPresent()) {
+        var peer = hitPeer.get();
+        int sw = mc.getWindow().getGuiScaledWidth();
+        int sh = mc.getWindow().getGuiScaledHeight();
+        int cx = sw / 2;
+        int cy = sh / 2 + 16;
+        String title = peer.cubeyName + " · von " + peer.ownerName;
+        String sub = peer.state + " · Skin: " + peer.skin + " · RMB: ♥  LMB: ✦";
+        int w = Math.max(mc.font.width(title), mc.font.width(sub)) + 12;
+        int x0 = cx - w / 2;
+        event.getGuiGraphics().fill(x0, cy - 3, x0 + w, cy + 21, 0xCC0D1824);
+        event.getGuiGraphics().renderOutline(x0, cy - 3, w, 24, 0xCC48D6FF);
+        event.getGuiGraphics().drawCenteredString(mc.font, title, cx, cy, 0xFFE6FAFF);
+        event.getGuiGraphics().drawCenteredString(mc.font, sub, cx, cy + 10, 0xFF9AC8DA);
+      }
+    }
     // Subtle bottom-center HUD thought subtitle so you never have to spin the camera to read thoughts.
     if (!session.isSleeping()) {
       var thought = session.bubbles.activeThought(session.tick, settings.thoughts);

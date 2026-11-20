@@ -298,6 +298,15 @@ public final class CompanionRenderer {
         sg,
         sb);
     buffers.endBatch(type);
+    if (!napping) {
+      renderEquippedItem(
+          mc,
+          poses,
+          buffers,
+          dev.qb2.ui.overlay.CubeyInventoryOverlay.equippedItemId(),
+          time,
+          session.combatActionTicks > 0);
+    }
     poses.popPose();
 
     // 3D Comet Speed Ribbons when thrown or flying fast!
@@ -353,12 +362,18 @@ public final class CompanionRenderer {
       boolean pThink = "Thinking".equals(peer.state);
       boolean pSpeak = "Speaking".equals(peer.state);
       double bob = pNap ? -0.014 : Math.sin(time * 2.0 + peer.ownerId.hashCode()) * 0.025;
+      float interactWobble = 0f;
+      if (peer.interactWobbleTicks > 0) {
+        interactWobble = (float) Math.sin(time * 24.0) * 14f;
+        bob += Math.abs(Math.sin(time * 16.0)) * 0.05;
+        if (session.tick != lastRibbonTick) peer.interactWobbleTicks--;
+      }
 
       PoseStack poses = new PoseStack();
       poses.pushPose();
       poses.translate(pPos.x() - camera.x, pPos.y() - camera.y + bob, pPos.z() - camera.z);
       poses.mulPose(Axis.YP.rotationDegrees(peer.renderYaw));
-      poses.mulPose(Axis.ZP.rotationDegrees(pNap ? 0f : peer.renderRoll));
+      poses.mulPose(Axis.ZP.rotationDegrees((pNap ? 0f : peer.renderRoll) + interactWobble));
       poses.mulPose(Axis.XP.rotationDegrees(pNap ? 14f : peer.renderPitch));
       if (pNap) {
         float bx = (float) (1.0 + sleepBreath * 0.016);
@@ -412,6 +427,9 @@ public final class CompanionRenderer {
           intensity * 0.97f * sScale,
           intensity * sScale);
       buffers.endBatch(type);
+      if (!pNap && peer.equipItemId != null && !peer.equipItemId.isBlank()) {
+        renderEquippedItem(mc, poses, buffers, peer.equipItemId, time, false);
+      }
       poses.popPose();
 
       // Render peer custom Cubey name / shared speech above the remote Cubey
@@ -1452,5 +1470,36 @@ public final class CompanionRenderer {
         .setOverlay(OverlayTexture.NO_OVERLAY)
         .setLight(LightTexture.FULL_BRIGHT)
         .setNormal(pose, nx, ny, nz);
+  }
+
+  private static void renderEquippedItem(
+      Minecraft mc,
+      PoseStack poses,
+      MultiBufferSource.BufferSource buffers,
+      String itemId,
+      double time,
+      boolean combatActive) {
+    if (mc == null || mc.level == null || itemId == null || itemId.isBlank()) return;
+    var stack = dev.qb2.ui.overlay.CubeyInventoryOverlay.resolveItem(itemId, 1);
+    if (stack.isEmpty()) return;
+    poses.pushPose();
+    float bob = (float) Math.sin(time * 3.4) * 0.025f;
+    float swing = combatActive ? (float) Math.sin(time * 28.0) * 32f : (float) Math.sin(time * 2.0) * 6f;
+    poses.translate(0.24f, 0.02f + bob, 0.08f);
+    poses.mulPose(Axis.YP.rotationDegrees(15f));
+    poses.mulPose(Axis.XP.rotationDegrees(-12f + swing));
+    poses.scale(0.32f, 0.32f, 0.32f);
+    mc.getItemRenderer()
+        .renderStatic(
+            stack,
+            net.minecraft.world.item.ItemDisplayContext.FIXED,
+            LightTexture.FULL_BRIGHT,
+            OverlayTexture.NO_OVERLAY,
+            poses,
+            buffers,
+            mc.level,
+            0);
+    buffers.endBatch();
+    poses.popPose();
   }
 }

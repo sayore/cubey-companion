@@ -46,6 +46,14 @@ public final class PersistentOutbox {
     }
   }
 
+  public void trimOldestTo(int maxSize) throws IOException {
+    int target = Math.max(0, maxSize);
+    if (pending.size() <= target) return;
+    int drop = pending.size() - target;
+    pending.subList(0, drop).clear();
+    persist();
+  }
+
   public int size() {
     return pending.size();
   }

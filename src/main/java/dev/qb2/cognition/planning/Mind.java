@@ -170,8 +170,12 @@ public final class Mind implements AutoCloseable {
                   memoryStatus = "unavailable; durable queue";
                   if (e instanceof InterruptedException) throw e;
                 }
-                if (outbox.size() > PersistentOutbox.CAPACITY - 8)
-                  throw new IllegalStateException("Memory queue full; cognition paused");
+                // Ring-buffer auto-trim when NERVE is offline so players without a local bridge
+                // never get permanently locked out with "Memory queue full; cognition paused"!
+                int incoming = job.events().size() + 4;
+                if (outbox.size() + incoming > PersistentOutbox.CAPACITY) {
+                  outbox.trimOldestTo(Math.max(0, PersistentOutbox.CAPACITY - incoming - 16));
+                }
                 for (var event : job.events()) outbox.add(event);
                 localFallback.writeAll(job.events());
                 var knowledgeScope = job.context().get("knowledgeScope");
@@ -316,6 +320,10 @@ public final class Mind implements AutoCloseable {
                           job,
                           "reflection",
                           "Model recollection (not verified): " + decision.memory()));
+                if (outbox.size() + newRecollections.size() > PersistentOutbox.CAPACITY) {
+                  outbox.trimOldestTo(
+                      Math.max(0, PersistentOutbox.CAPACITY - newRecollections.size() - 8));
+                }
                 for (Episode rec : newRecollections) outbox.add(rec);
                 localFallback.writeAll(newRecollections);
                 pending = outbox.size();
