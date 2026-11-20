@@ -148,6 +148,7 @@ public final class CubeyServerHelper {
     CubeyNetwork.serverPackSlotClickHandler = CubeyServerHelper::handlePackSlotClick;
     CubeyNetwork.serverThrowHitMobHandler = CubeyServerHelper::handleThrowHitMob;
     CubeyNetwork.serverGiftPlayerHandler = CubeyServerHelper::handleGiftPlayer;
+    CubeyNetwork.serverThrowFetchHandler = CubeyServerHelper::handleThrowFetch;
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onServerTick);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onIncomingDamage);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerLogin);
@@ -354,6 +355,49 @@ public final class CubeyServerHelper {
             "🎁 Cubey hat " + itemName + " an " + target.getGameProfile().getName() + " übergeben!"));
     level.playSound(
         null, target.blockPosition(), SoundEvents.EXPERIENCE_ORB_PICKUP, SoundSource.PLAYERS, 0.5f, 1.3f);
+  }
+
+  /**
+   * Throw-to-Fetch ("Apportieren!"): When Cubey is thrown and lands near dropped items, scoops up
+   * to 4 stacks within a 3.8-block radius into Cubey's 6-slot backpack (only if they fit!).
+   */
+  private static void handleThrowFetch(
+      ServerPlayer player, CubeyNetwork.C2SThrowFetchPayload payload) {
+    if (!player.isAlive() || player.isSpectator()) return;
+    if (!(player.level() instanceof ServerLevel level)) return;
+    if (!Double.isFinite(payload.x())
+        || !Double.isFinite(payload.y())
+        || !Double.isFinite(payload.z())) return;
+    Vec3 land = new Vec3(payload.x(), payload.y(), payload.z());
+    if (land.distanceToSqr(player.position()) > 30.0 * 30.0) return;
+
+    CubeyPackStorage storage = CubeyPackStorage.get(player.server);
+    CubeyPackStorage.PlayerPack pack = storage.getOrCreate(player.getUUID());
+    AABB box = new AABB(land.x, land.y, land.z, land.x, land.y, land.z).inflate(3.8, 2.5, 3.8);
+    int fetched = 0;
+    String lastId = "";
+    for (var itemEnt :
+        level.getEntitiesOfClass(net.minecraft.world.entity.item.ItemEntity.class, box)) {
+      if (!itemEnt.isAlive() || itemEnt.hasPickUpDelay()) continue;
+      ItemStack st = itemEnt.getItem();
+      if (st.isEmpty() || !pack.canFitAllInBackpack(List.of(st))) continue;
+      lastId = BuiltInRegistries.ITEM.getKey(st.getItem()).toString();
+      pack.insertIntoBackpack(st.copy());
+      itemEnt.discard();
+      fetched++;
+      if (fetched >= 4) break;
+    }
+    if (fetched <= 0) return;
+
+    storage.setDirty();
+    CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
+    CubeyNetwork.sendTaskVisual(
+        player,
+        new CubeyNetwork.S2CTaskVisualPayload("fetch", land.x, land.y + 0.4, land.z, lastId, 24));
+    level.sendParticles(
+        ParticleTypes.HAPPY_VILLAGER, land.x, land.y + 0.4, land.z, 6, 0.35, 0.25, 0.35, 0.02);
+    level.playSound(
+        null, BlockPos.containing(land), SoundEvents.ITEM_PICKUP, SoundSource.PLAYERS, 0.7f, 1.45f);
   }
 
   /** Feature #6: Lantern / Soul Lantern in Equipment Slot -> subtle Night Vision in dark caves! */

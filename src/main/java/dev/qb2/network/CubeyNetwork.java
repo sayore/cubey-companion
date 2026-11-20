@@ -38,6 +38,7 @@ public final class CubeyNetwork {
       serverPackSlotClickHandler;
   public static volatile BiConsumer<ServerPlayer, C2SThrowHitMobPayload> serverThrowHitMobHandler;
   public static volatile BiConsumer<ServerPlayer, C2SGiftPlayerPayload> serverGiftPlayerHandler;
+  public static volatile BiConsumer<ServerPlayer, C2SThrowFetchPayload> serverThrowFetchHandler;
 
   public record C2STelemetryPayload(
       double x,
@@ -252,6 +253,25 @@ public final class CubeyNetwork {
     }
   }
 
+  public record C2SThrowFetchPayload(double x, double y, double z) implements CustomPacketPayload {
+    public static final Type<C2SThrowFetchPayload> TYPE =
+        new Type<>(ResourceLocation.fromNamespaceAndPath("qb2", "c2s_throw_fetch"));
+
+    public static final StreamCodec<FriendlyByteBuf, C2SThrowFetchPayload> CODEC =
+        StreamCodec.of(
+            (buf, p) -> {
+              buf.writeDouble(p.x);
+              buf.writeDouble(p.y);
+              buf.writeDouble(p.z);
+            },
+            buf -> new C2SThrowFetchPayload(buf.readDouble(), buf.readDouble(), buf.readDouble()));
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+      return TYPE;
+    }
+  }
+
   public record S2CPackSyncPayload(
       ItemStack equipStack, List<ItemStack> backpackStacks, int flags)
       implements CustomPacketPayload {
@@ -354,6 +374,10 @@ public final class CubeyNetwork {
         C2SGiftPlayerPayload.TYPE,
         C2SGiftPlayerPayload.CODEC,
         CubeyNetwork::handleGiftPlayerServer);
+    registrar.playToServer(
+        C2SThrowFetchPayload.TYPE,
+        C2SThrowFetchPayload.CODEC,
+        CubeyNetwork::handleThrowFetchServer);
     registrar.playToClient(
         S2CPackSyncPayload.TYPE, S2CPackSyncPayload.CODEC, CubeyNetwork::handlePackSyncClient);
     registrar.playToClient(
@@ -481,6 +505,16 @@ public final class CubeyNetwork {
         () -> {
           if (!(ctx.player() instanceof ServerPlayer player)) return;
           var handler = serverGiftPlayerHandler;
+          if (handler != null) handler.accept(player, payload);
+        });
+  }
+
+  private static void handleThrowFetchServer(
+      C2SThrowFetchPayload payload, IPayloadContext ctx) {
+    ctx.enqueueWork(
+        () -> {
+          if (!(ctx.player() instanceof ServerPlayer player)) return;
+          var handler = serverThrowFetchHandler;
           if (handler != null) handler.accept(player, payload);
         });
   }

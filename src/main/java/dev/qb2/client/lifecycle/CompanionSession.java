@@ -222,6 +222,10 @@ public final class CompanionSession {
         situational.celebrateTicks = 30;
         bubbles.emote("🎁 Übergabe!", tick);
       }
+      case "fetch" -> {
+        situational.celebrateTicks = 28;
+        bubbles.emote("✦ Apportiert!", tick);
+      }
       default -> {}
     }
   }
@@ -620,6 +624,12 @@ public final class CompanionSession {
         }
       }
       if (!grabThrow.isThrown() && catchVisitTicks == 0) {
+        // Throw-to-Fetch ("Apportieren!"): scoop up dropped items around Cubey's landing spot!
+        if (mc.getConnection() != null
+            && mc.getConnection().hasChannel(dev.qb2.network.CubeyNetwork.C2SThrowFetchPayload.TYPE)) {
+          net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+              new dev.qb2.network.CubeyNetwork.C2SThrowFetchPayload(next.x(), next.y(), next.z()));
+        }
         action = "return";
         actionUntil = tick + 100;
       } else if (grabThrow.isThrown()

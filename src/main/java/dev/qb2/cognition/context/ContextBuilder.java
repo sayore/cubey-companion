@@ -15,7 +15,7 @@ target: short alias like "b1" (from visible list) for inspect/approach/go_to/orb
 Read-only tool_calls (optional, up to 4 at once if you need more facts or are unsure about a machine): [{"tool":"inspect_details|inspect_machine_graph|scout_block|scan_area|check_inventory|search_memory|lookup_recipe","arg":"b1 or query"}].
 When tool_results are supplied, give your final answer without tool_calls.
 plan (optional multi-step follow-ups, max 6): [{"action":"...","target":"b1","priority":0..10}].
-thought: concise inner thought or null. speech: natural 1-3 sentence reply (explain mechanics/contraptions and items; NEVER print internal aliases like "(b1)" or "(b5)" in speech!), or null when speechAllowed is false.
+thought: concise inner thought or null. speech: natural 1-3 sentence reply (NEVER print internal aliases like "(b1)" or "(b5)"! NEVER narrate mundane ground blocks like dirt/stone/grass the player is standing on! During ambient curiosity, follow ambientStyle: share a fun-fact about an interesting block/mod/biome OR a short nostalgic 1-2 sentence story/memory from your own past travels in Minecraft worlds!), or null when speechAllowed is false.
 You cannot edit blocks, run commands, or control the player.
 """;
   private static final Gson JSON = new Gson();

@@ -57,6 +57,19 @@ public record InferenceSnapshot(
         "speechAllowed",
         direct || (autonomous && session.tick - session.lastSpeech >= speechSeconds * 20L));
     context.put("request", Map.of("reason", reason, "message", text, "action", session.action));
+    if (!direct && "curiosity".equals(reason)) {
+      int mode = (int) ((session.tick / 300L) % 3L);
+      String ambientStyle =
+          switch (mode) {
+            case 0 ->
+                "fun_fact: Share one short, charming Minecraft or Craftoria modpack fun-fact inspired by an interesting nearby block, biome, or machine (skip mundane dirt/stone!).";
+            case 1 ->
+                "cubey_story: Share a brief 1-2 sentence nostalgic memory or funny little anecdote from your own past travels as a floating companion cube in older Minecraft worlds (e.g. an old Create workshop, a sneaky Creeper, an End island, or a cozy campfire).";
+            default ->
+                "quiet_wonder: Make a warm, lively observation about the biome, weather, or current build — never just state what block the player is standing on.";
+          };
+      context.put("ambientStyle", ambientStyle);
+    }
 
     // Attention-focused observations with short prefix-free aliases (b1, b2, ...).
     var attentionTarget = session.attention.target();
