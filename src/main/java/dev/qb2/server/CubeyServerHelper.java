@@ -120,6 +120,8 @@ public final class CubeyServerHelper {
   private static final class PlayerRuntime {
     ActiveCraft activeCraft;
     long nextHarvestTick;
+    long nextHarvestMoodRollTick;
+    int harvestMoodRemaining;
     long nextCraftScanTick;
     long nextTorchTick;
     long nextCombatTick;
@@ -196,8 +198,7 @@ public final class CubeyServerHelper {
       if (tick >= rt.nextHarvestTick
           && rt.activeCraft == null
           && pack.flagEnabled(CubeyPackStorage.FLAG_HARVEST)) {
-        rt.nextHarvestTick = tick + 45;
-        tryGentleHarvest(level, player, storage, pack);
+        tickMoodBasedHarvest(level, player, storage, pack, rt, tick);
       }
       if (tick >= rt.nextTorchTick && pack.flagEnabled(CubeyPackStorage.FLAG_TORCH)) {
         rt.nextTorchTick = tick + 30;
@@ -368,10 +369,51 @@ public final class CubeyServerHelper {
   }
 
   /**
-   * Gently harvests one mature CropBlock within 6 blocks by resetting its age to 0 (no block
-   * breaking!) and placing the real harvest into Cubey's 6-slot backpack.
+   * Mood-driven gentle gardening: Cubey does NOT farm nonstop. He occasionally gets into a cozy
+   * gardening mood (3–5 crops), only when the player is relaxed (not sprinting/fighting), and NEVER
+   * harvests a crop unless 100% of its drops fit cleanly inside his 6-slot backpack (zero ground
+   * item spam!).
    */
-  private static void tryGentleHarvest(
+  private static void tickMoodBasedHarvest(
+      ServerLevel level,
+      ServerPlayer player,
+      CubeyPackStorage storage,
+      CubeyPackStorage.PlayerPack pack,
+      PlayerRuntime rt,
+      long tick) {
+    // Pause gardening while sprinting or recently in combat
+    if (player.isSprinting() || (player.tickCount - player.getLastHurtByMobTimestamp()) < 140) {
+      rt.nextHarvestTick = tick + 60;
+      return;
+    }
+    if (rt.harvestMoodRemaining <= 0) {
+      if (tick < rt.nextHarvestMoodRollTick) {
+        rt.nextHarvestTick = tick + 60;
+        return;
+      }
+      // Roll every 20s (~22% chance) to enter a cozy gardening mood of 3..5 crops
+      rt.nextHarvestMoodRollTick = tick + 400;
+      rt.nextHarvestTick = tick + 60;
+      if (level.random.nextFloat() >= 0.22f) return;
+      rt.harvestMoodRemaining = 3 + level.random.nextInt(3);
+    }
+
+    rt.nextHarvestTick = tick + 55; // Cozy ~2.75s cadence per crop
+    boolean harvested = tryGentleHarvest(level, player, storage, pack);
+    if (harvested) {
+      rt.harvestMoodRemaining--;
+      if (rt.harvestMoodRemaining <= 0) {
+        // Rest 2.0–3.5 minutes after a gardening wave so Cubey feels playful, not industrial
+        rt.nextHarvestMoodRollTick = tick + 2400 + level.random.nextInt(1800);
+      }
+    } else {
+      // No mature crop nearby or backpack full -> end gardening mood cleanly & wait a minute
+      rt.harvestMoodRemaining = 0;
+      rt.nextHarvestMoodRollTick = tick + 1200;
+    }
+  }
+
+  private static boolean tryGentleHarvest(
       ServerLevel level,
       ServerPlayer player,
       CubeyPackStorage storage,
@@ -395,35 +437,36 @@ public final class CubeyServerHelper {
         }
       }
     }
-    if (bestCrop == null) return;
+    if (bestCrop == null) return false;
     BlockState state = level.getBlockState(bestCrop);
-    if (!(state.getBlock() instanceof CropBlock crop)) return;
+    if (!(state.getBlock() instanceof CropBlock crop)) return false;
 
-    List<ItemStack> drops =
+    List<ItemStack> rawDrops =
         Block.getDrops(state, level, bestCrop, null, player, ItemStack.EMPTY);
-    if (drops.isEmpty()) return;
+    if (rawDrops.isEmpty()) return false;
 
-    // Replant in-place without breaking the block!
-    level.setBlock(bestCrop, crop.getStateForAge(0), Block.UPDATE_ALL);
-
-    // Deduct 1 seed to pay for replanting (100% survival-fair)
+    // Deduct 1 seed up-front to pay for replanting and verify 100% of remaining drops fit in pack!
+    List<ItemStack> netDrops = new ArrayList<>(rawDrops.size());
     boolean seedPaid = false;
-    String harvestedItemId = "";
-    for (ItemStack drop : drops) {
+    for (ItemStack drop : rawDrops) {
       if (drop.isEmpty()) continue;
       ItemStack copy = drop.copy();
       if (!seedPaid && copy.getCount() > 0 && isSeedLike(copy)) {
         copy.shrink(1);
         seedPaid = true;
       }
-      if (copy.isEmpty()) continue;
-      if (harvestedItemId.isEmpty()) {
-        harvestedItemId = BuiltInRegistries.ITEM.getKey(copy.getItem()).toString();
-      }
-      ItemStack rem = pack.insertIntoBackpack(copy);
-      if (!rem.isEmpty()) {
-        Block.popResource(level, bestCrop, rem);
-      }
+      if (!copy.isEmpty()) netDrops.add(copy);
+    }
+    if (netDrops.isEmpty()) return false;
+    // STRICT CHECK: Never harvest if Cubey's 6-slot backpack cannot hold all drops!
+    if (!pack.canFitAllInBackpack(netDrops)) return false;
+
+    // Replant in-place without breaking the block!
+    level.setBlock(bestCrop, crop.getStateForAge(0), Block.UPDATE_ALL);
+
+    String harvestedItemId = BuiltInRegistries.ITEM.getKey(netDrops.get(0).getItem()).toString();
+    for (ItemStack stack : netDrops) {
+      pack.insertIntoBackpack(stack);
     }
 
     storage.setDirty();
@@ -449,6 +492,7 @@ public final class CubeyServerHelper {
         0.01);
     level.playSound(
         null, bestCrop, SoundEvents.CROP_BREAK, SoundSource.BLOCKS, 0.45f, 1.25f);
+    return true;
   }
 
   private static boolean isSeedLike(ItemStack stack) {

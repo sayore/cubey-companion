@@ -97,6 +97,39 @@ public final class CubeyPackStorage extends SavedData {
       return false;
     }
 
+    /**
+     * Simulates inserting every stack into slots 1..6 and returns {@code true} only if ALL items
+     * fit completely without dropping anything on the ground.
+     */
+    public boolean canFitAllInBackpack(List<ItemStack> stacks) {
+      if (stacks == null || stacks.isEmpty()) return true;
+      ItemStack[] sim = new ItemStack[BACKPACK_SIZE];
+      for (int i = 0; i < BACKPACK_SIZE; i++) {
+        sim[i] = items.get(BACKPACK_START + i).copy();
+      }
+      for (ItemStack raw : stacks) {
+        if (raw == null || raw.isEmpty()) continue;
+        ItemStack rem = raw.copy();
+        for (int i = 0; i < BACKPACK_SIZE && !rem.isEmpty(); i++) {
+          if (!sim[i].isEmpty()
+              && ItemStack.isSameItemSameComponents(sim[i], rem)
+              && sim[i].getCount() < sim[i].getMaxStackSize()) {
+            int move = Math.min(rem.getCount(), sim[i].getMaxStackSize() - sim[i].getCount());
+            sim[i].grow(move);
+            rem.shrink(move);
+          }
+        }
+        for (int i = 0; i < BACKPACK_SIZE && !rem.isEmpty(); i++) {
+          if (sim[i].isEmpty()) {
+            int move = Math.min(rem.getCount(), rem.getMaxStackSize());
+            sim[i] = rem.split(move);
+          }
+        }
+        if (!rem.isEmpty()) return false;
+      }
+      return true;
+    }
+
     /** Consumes exactly {@code amount} matching items from slots 1..6. Returns true if consumed. */
     public boolean consumeFromBackpack(Predicate<ItemStack> matcher, int amount) {
       if (amount <= 0) return true;
