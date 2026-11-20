@@ -1,0 +1,32 @@
+schema = "akte/v1"
+id = "project.qb2"
+kind = "project"
+name = "QB2"
+description = "Client-only NeoForge 1.21.1 companion with Google Gemma inference and NERVE episodic memory."
+version = "0.1.0"
+keywords = ["qb2", "cubey2", "minecraft", "neoforge", "nerve", "companion"]
+traits = ["java", "typescript", "client-only"]
+
+[owner]
+project = "qb2"
+
+[[provides]]
+kind = "workspace"
+name = "qb2"
+description = "Minecraft client companion, safe local actions, client inventory perception, catalog knowledge and NERVE memory adapter."
+
+[[provides]]
+kind = "command"
+name = "qb2.knowledge.import"
+description = "Import a public client-exported registry/recipe catalog through the existing NERVE bridge; scripts/import-catalog.py."
+
+[data.project]
+path = "."
+state = "active"
+summary = "Compiled 0.1 mod; real Google/Gemma and NERVE client integration verified, including flight goals, radius limits and bubbles. User credentials stay local in an ignored .env."
+updated_at = "2026-11-20"
+
+[source]
+repo = "local:project.qb2"
+path = "."
+manifest = ".werk/projects/qb2.akte.toml"

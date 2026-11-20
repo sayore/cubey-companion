@@ -1,0 +1,120 @@
+package dev.qb2.client.lifecycle;
+
+import dev.qb2.client.config.Settings;
+import dev.qb2.cognition.decisions.Decision;
+import dev.qb2.companion.attention.Attention;
+import dev.qb2.companion.movement.*;
+import dev.qb2.perception.*;
+import dev.qb2.perception.chat.ChatHistory;
+import dev.qb2.perception.world.WorldSensor;
+import dev.qb2.rendering.bubbles.Bubbles;
+import java.util.*;
+import net.minecraft.client.Minecraft;
+import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.Vec3;
+
+public final class CompanionSession {
+  public final Motion motion = new Motion();
+  public final Attention attention = new Attention();
+  public final ChatHistory chat = new ChatHistory();
+  public final WorldSensor sensor = new WorldSensor();
+  public final EventDeduplicator dedup = new EventDeduplicator();
+  public final Bubbles bubbles = new Bubbles();
+  public final Deque<String> recentThoughts = new ArrayDeque<>(),
+      actions = new ArrayDeque<>(),
+      observationsHistory = new ArrayDeque<>();
+  public List<Observation> observations = List.of();
+  public long tick, lastRequest = -10000, lastSpeech = -10000;
+  public String action = "observe", state = "Idle";
+  private long actionUntil;
+  private Observation actionTarget;
+  public final FlightPlanner flight = new FlightPlanner();
+  public String flightMode = "Idle";
+  public Point flightGoal = Point.ZERO;
+
+  public void tick(Minecraft mc, Settings settings, boolean thinking) {
+    if (mc.player == null || mc.level == null) return;
+    tick++;
+    Point player = WorldSensor.point(mc.player.position());
+    Vec3 forward = mc.player.getLookAngle().multiply(1, 0, 1).normalize();
+    Vec3 side = forward.cross(new Vec3(0, 1, 0));
+    Point home =
+        WorldSensor.point(
+            mc.player.position().add(forward.scale(1.3)).add(side.scale(0.8)).add(0, 1.6, 0));
+    if (tick == 1) motion.reset(home);
+    if (actionUntil < tick) {
+      action = "observe";
+      actionTarget = null;
+    }
+    var target = actionTarget != null ? actionTarget : attention.target();
+    var plan =
+        flight.plan(
+            player,
+            home,
+            motion.position(),
+            target,
+            mc.player.isSprinting() ? "return" : action,
+            settings.exploreRadius,
+            tick,
+            thinking);
+    Point desired = plan.position();
+    Point eye = WorldSensor.point(mc.gameRenderer.getMainCamera().getPosition());
+    if (desired.distance(eye) < 0.9)
+      desired =
+          Motion.constrain(
+              player,
+              desired.add(WorldSensor.point(side).scale(1.1)),
+              settings.exploreRadius * 0.9);
+    java.util.function.Predicate<Point> free =
+        p -> {
+          Vec3 v = WorldSensor.vec(p);
+          return mc.level.hasChunkAt(net.minecraft.core.BlockPos.containing(v))
+              && mc.level.noCollision(
+                  new AABB(v.x - .17, v.y - .17, v.z - .17, v.x + .17, v.y + .17, v.z + .17));
+        };
+    flightGoal = FlightClearance.nearest(player, desired, settings.exploreRadius, free);
+    flightMode = plan.mode();
+    motion.tick(player, flightGoal, settings.exploreRadius, free);
+    state = bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : flightMode;
+    if (tick % 10 == 0) {
+      Point facing =
+          target == null
+              ? WorldSensor.point(mc.player.getLookAngle())
+              : target.position().subtract(motion.position());
+      observations = sensor.sample(mc, motion.position(), facing, settings, tick);
+      attention.update(observations, tick);
+      if (!sensor.changes().isEmpty())
+        for (String c : sensor.changes()) remember(observationsHistory, "t=" + tick + " " + c, 16);
+    }
+  }
+
+  public void apply(Decision d) {
+    action = d.action();
+    actionUntil = tick + 160;
+    if (Set.of("inspect", "approach", "go_to", "orbit").contains(d.action()))
+      attention.holdUntil(actionUntil);
+    if (!d.target().isBlank())
+      observations.stream()
+          .filter(o -> o.key().equals(d.target()))
+          .findFirst()
+          .ifPresent(
+              o -> {
+                attention.select(o, tick);
+                actionTarget = o;
+              });
+    remember(actions, "t=" + tick + " " + d.action() + " " + d.target(), 12);
+    if (!d.thought().isBlank() && !recentThoughts.contains(d.thought())) {
+      remember(recentThoughts, d.thought(), 8);
+      bubbles.thought(d.thought(), tick);
+    }
+    if (!d.speech().isBlank()) {
+      bubbles.speech(d.speech(), tick);
+      lastSpeech = tick;
+    }
+  }
+
+  public static void remember(Deque<String> queue, String text, int max) {
+    queue.addLast(text);
+    while (queue.size() > max) queue.removeFirst();
+  }
+}

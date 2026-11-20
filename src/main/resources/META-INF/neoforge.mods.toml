@@ -1,0 +1,20 @@
+modLoader="javafml"
+loaderVersion="[4,)"
+license="All Rights Reserved"
+[[mods]]
+modId="qb2"
+version="0.1.0"
+displayName="QB2"
+description="An autonomous client companion with NERVE episodic memory."
+[[dependencies.qb2]]
+modId="neoforge"
+type="required"
+versionRange="[21.1.253,21.2)"
+ordering="NONE"
+side="CLIENT"
+[[dependencies.qb2]]
+modId="minecraft"
+type="required"
+versionRange="[1.21.1]"
+ordering="NONE"
+side="CLIENT"

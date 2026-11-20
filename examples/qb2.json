@@ -1,0 +1,19 @@
+{
+  "provider": "google",
+  "endpoint": "https://generativelanguage.googleapis.com/v1beta",
+  "model": "gemma-4-31b-it",
+  "nerveEndpoint": "http://127.0.0.1:17842",
+  "memoryTopK": 3,
+  "perceptionRadius": 10,
+  "exploreRadius": 7,
+  "inferenceSeconds": 18,
+  "tokenBudget": 2200,
+  "outputTokens": 350,
+  "autonomous": true,
+  "thoughts": true,
+  "speech": true,
+  "particles": true,
+  "debug": false,
+  "paused": false,
+  "serverChat": false
+}

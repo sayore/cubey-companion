@@ -1,0 +1,58 @@
+plugins {
+    id 'java-library'
+    id 'net.neoforged.moddev' version '2.0.148'
+}
+version = '0.1.0'
+group = 'dev.qb2'
+base { archivesName = 'qb2' }
+java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+repositories { mavenCentral() }
+neoForge {
+    version = '21.1.253'
+    runs {
+        client { client() }
+        smokeClient {
+            client()
+            gameDirectory = file(providers.environmentVariable('QB2_SMOKE_DIR').getOrElse('run-smoke'))
+            systemProperty 'qb2.smoke', 'true'
+            systemProperty 'qb2.smoke.waitCatalog', providers.environmentVariable('QB2_WAIT_CATALOG').getOrElse('true')
+            systemProperty 'qb2.smoke.timeout', providers.environmentVariable('QB2_SMOKE_TIMEOUT').getOrElse('720')
+            systemProperty 'qb2.smoke.pack', providers.environmentVariable('QB2_PACK_TEST').getOrElse('false')
+            jvmArgument '-Xmx8G'
+            systemProperty 'neoforge.enableGameTest', 'false'
+            systemProperty 'qb2.smoke.live', providers.environmentVariable('QB2_LIVE_API_TEST').getOrElse('false')
+        }
+    }
+    mods { qb2 { sourceSet sourceSets.main } }
+}
+dependencies {
+    compileOnly 'com.google.code.gson:gson:2.10.1'
+    testImplementation 'com.google.code.gson:gson:2.10.1'
+    testImplementation platform('org.junit:junit-bom:5.11.4')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+test { useJUnitPlatform() }
+tasks.register('liveApiCheck', JavaExec) {
+    group = 'verification'
+    description = 'Opt-in real Google call; credentials are provided by scripts/live-test.py.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.qb2.LiveApiCheck'
+}
+tasks.withType(JavaCompile).configureEach { options.encoding = 'UTF-8' }
+
+tasks.register('releaseBundle', Zip) {
+    dependsOn tasks.named('jar')
+    archiveFileName = "qb2-${project.version}-bundle.zip"
+    destinationDirectory = layout.buildDirectory.dir('distributions')
+    from(tasks.named('jar')) { into 'mods' }
+    from('README.md')
+    from('docs') { into 'docs' }
+    from('examples') { into 'examples' }
+    from(['bridge/server.ts', 'bridge/article-ids.ts']) { into 'bridge' }
+    from('patches') { into 'patches' }
+    from('scripts/install.sh') { into 'scripts' }
+    from('scripts/import-catalog.py') { into 'scripts' }
+}
+tasks.named('assemble') { dependsOn tasks.named('releaseBundle') }

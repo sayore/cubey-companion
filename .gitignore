@@ -1,0 +1,15 @@
+.gradle/
+build/
+run/
+.ctk/
+*.log
+bridge/data/
+/config/
+run-smoke/
+
+.env
+.env.*
+!.env.example
+__pycache__/
+
+run-craftoria/

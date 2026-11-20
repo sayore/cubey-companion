@@ -1,0 +1,180 @@
+diff --git a/packages/nerve-bun/src/engine.ts b/packages/nerve-bun/src/engine.ts
+index 98e5df9..91819b2 100644
+--- a/packages/nerve-bun/src/engine.ts
++++ b/packages/nerve-bun/src/engine.ts
+@@ -131,6 +131,7 @@ let currentMode: DbMode = DbMode.FastWal;
+ let walFd: number = -1;
+ let inTransaction = false;
+ let isSearching = false;
++let replayingWal = false;
+ 
+ // Dynamisch wachsender In-Memory Text-Speicher + O(1) Index
+ let textsCapacity = 1024 * 1024;
+@@ -250,46 +251,52 @@ function reloadFromDisk() {
+     if (existsSync(LOG_PATH)) {
+         const walBuf = readFileSync(LOG_PATH);
+         if (walBuf.byteLength >= 16) {
+-            const walPtr = ptr(walBuf);
+-            const metaPtr = ptr(frameMetaScratch);
+             let offset = 0;
+             let recoveredAny = false;
+-
+-            while (lib.symbols.wal_next_frame(walPtr, walBuf.byteLength, offset, metaPtr) === 1) {
+-                const frameType = frameMetaScratch[0];
+-                const payloadOffset = frameMetaScratch[1];
+-                const byteLen = frameMetaScratch[2];
+-                offset = frameMetaScratch[3];
+-                recoveredAny = true;
+-
+-                if (frameType === FRAME_RELATIONS) {
+-                    const count = byteLen >>> 2;
+-                    if (ramCursor + count > MAX_RAM_BUFFER) {
+-                        Engine.triggerAsyncMerge();
+-                    }
+-                    const src = new Uint32Array(walBuf.buffer, walBuf.byteOffset + payloadOffset, count);
+-                    ramBuffer.set(src, ramCursor);
+-                    ramCursor += count;
+-                } else if (frameType === FRAME_DELETE_ARTICLE) {
+-                    const dv = new DataView(walBuf.buffer, walBuf.byteOffset + payloadOffset, 4);
+-                    const delId = dv.getUint32(0, true);
+-                    if (delId < MAX_ARTICLES) {
+-                        deletedBits[delId >>> 5] |= 1 << (delId & 31);
+-                        textsIndex[delId * 3 + 2] = 0;
+-                        textsDirty = true;
+-                    }
+-                } else if (frameType === FRAME_TEXT) {
+-                    const dv = new DataView(walBuf.buffer, walBuf.byteOffset + payloadOffset, byteLen);
+-                    const artId = dv.getUint32(0, true);
+-                    const textBytes = new Uint8Array(walBuf.buffer, walBuf.byteOffset + payloadOffset + 4, byteLen - 4);
+-                    if (artId < MAX_ARTICLES) {
+-                        deletedBits[artId >>> 5] &= ~(1 << (artId & 31));
+-                        upsertedBits[artId >>> 5] |= 1 << (artId & 31);
+-                        appendTextInMemory(artId, textBytes);
++            replayingWal = true;
++            try {
++                // Reacquire FFI pointers per call: backing storage can change when buffers are
++                // materialized or collected during a long replay. Cached addresses became stale.
++                while (lib.symbols.wal_next_frame(ptr(walBuf), walBuf.byteLength, offset, ptr(frameMetaScratch)) === 1) {
++                    const frameType = frameMetaScratch[0];
++                    const payloadOffset = frameMetaScratch[1];
++                    const byteLen = frameMetaScratch[2];
++                    const nextOffset = frameMetaScratch[3];
++                    if (nextOffset <= offset || nextOffset > walBuf.byteLength) throw new Error("Invalid WAL recovery cursor");
++                    offset = nextOffset;
++                    recoveredAny = true;
++
++                    if (frameType === FRAME_RELATIONS) {
++                        const count = byteLen >>> 2;
++                        if (ramCursor + count > MAX_RAM_BUFFER) {
++                            Engine.triggerAsyncMerge();
++                        }
++                        // Text frames have variable byte lengths, so the next relation payload may be unaligned.
++                        const alignedPayload = Uint8Array.from(walBuf.subarray(payloadOffset, payloadOffset + count * 4));
++                        const src = new Uint32Array(alignedPayload.buffer, alignedPayload.byteOffset, count);
++                        ramBuffer.set(src, ramCursor);
++                        ramCursor += count;
++                    } else if (frameType === FRAME_DELETE_ARTICLE) {
++                        const dv = new DataView(walBuf.buffer, walBuf.byteOffset + payloadOffset, 4);
++                        const delId = dv.getUint32(0, true);
++                        if (delId < MAX_ARTICLES) {
++                            deletedBits[delId >>> 5] |= 1 << (delId & 31);
++                            textsIndex[delId * 3 + 2] = 0;
++                            textsDirty = true;
++                        }
++                    } else if (frameType === FRAME_TEXT) {
++                        const dv = new DataView(walBuf.buffer, walBuf.byteOffset + payloadOffset, byteLen);
++                        const artId = dv.getUint32(0, true);
++                        const textBytes = new Uint8Array(walBuf.buffer, walBuf.byteOffset + payloadOffset + 4, byteLen - 4);
++                        if (artId < MAX_ARTICLES) {
++                            deletedBits[artId >>> 5] &= ~(1 << (artId & 31));
++                            upsertedBits[artId >>> 5] |= 1 << (artId & 31);
++                            appendTextInMemory(artId, textBytes);
++                        }
+                     }
+                 }
+-            }
+ 
++            } finally { replayingWal = false; }
+             if (recoveredAny) {
+                 Engine.triggerAsyncMerge();
+             }
+@@ -478,7 +485,9 @@ export const Engine = {
+         ramCursor = 0;
+         txStartCursor = 0;
+ 
+-        if (currentMode !== DbMode.Volatile) {
++        // A RAM-buffer merge during replay must not checkpoint a prefix or truncate
++        // the still-unread WAL. Persist only after all valid frames have been applied.
++        if (currentMode !== DbMode.Volatile && !replayingWal) {
+             lib.symbols.atomic_write_file(
+                 mmapCursor > 0 ? ptr(mmapRelations) : ptr(dummyU32),
+                 mmapCursor * 4,
+diff --git a/test/wal_recovery_test.ts b/test/wal_recovery_test.ts
+new file mode 100644
+index 0000000..98013c0
+--- /dev/null
++++ b/test/wal_recovery_test.ts
+@@ -0,0 +1,63 @@
++import { test, expect } from "bun:test";
++import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
++import { tmpdir } from "node:os";
++import { join, resolve } from "node:path";
++import { pathToFileURL } from "node:url";
++
++test("recovers relation frames after unaligned variable-length text frames", () => {
++    const root=mkdtempSync(join(tmpdir(),"nerve-wal-recovery-"));
++    mkdirSync(join(root,"db"));
++    const entry=pathToFileURL(resolve(import.meta.dir,"../packages/nerve-bun")).href;
++    const prefix=`const {Engine,DbMode}=await import(${JSON.stringify(entry)});`;
++    const run=(body:string)=>Bun.spawnSync([process.execPath,"-e",prefix+body],{cwd:root,stdout:"pipe",stderr:"pipe"});
++    try {
++        const write=run(`Engine.setMode(DbMode.StrictAcid);Engine.upsertArticle(42,"abc",["minecraft:iron_ingot"]);Engine.upsertArticle(43,"variable UTF-8 ä",["create:mechanical_press"]);process.exit(0);`);
++        expect(write.exitCode).toBe(0);
++        const read=run(`console.log(JSON.stringify({text:Engine.getArticleText(42),matches:Engine.getTopMatchesUnique(["minecraft:iron_ingot"],[],3)}));`);
++        expect(read.exitCode).toBe(0);
++        const result=JSON.parse(read.stdout.toString());
++        expect(result.text).toBe("abc");expect(result.matches[0].id).toBe(42);
++    } finally {rmSync(root,{recursive:true,force:true});}
++});
++
++test("large WAL replay survives buffer materialization/GC without cached FFI addresses", () => {
++    const root=mkdtempSync(join(tmpdir(),"nerve-large-recovery-"));
++    mkdirSync(join(root,"db"));
++    const entry=pathToFileURL(resolve(import.meta.dir,"../packages/nerve-bun")).href;
++    const prefix=`const {Engine,DbMode}=await import(${JSON.stringify(entry)});`;
++    const run=(body:string)=>Bun.spawnSync([process.execPath,"-e",prefix+body],{cwd:root,stdout:"pipe",stderr:"pipe",timeout:20000});
++    try {
++        const write=run(`Engine.setMode(DbMode.FastWal);for(let i=0;i<50000;i++)Engine.upsertArticle(i,"row"+i+"x".repeat(1024),["article:"+i,"recovery"]);process.exit(0);`);
++        expect(write.exitCode).toBe(0);
++        const read=run(`console.log(JSON.stringify([0,25000,49999].map(id=>Engine.getArticleText(id))));`);
++        expect(read.exitCode).toBe(0);
++        const texts=JSON.parse(read.stdout.toString());
++        expect(texts).toEqual([0,25000,49999].map(id=>"row"+id+"x".repeat(1024)));
++        const again=run(`console.log(Engine.getTopMatchesUnique(["article:49999"],[],1)[0]?.id);`);
++        expect(again.exitCode).toBe(0);expect(again.stdout.toString().trim()).toBe("49999");
++    } finally {rmSync(root,{recursive:true,force:true});}
++});
++
++test("recovery may merge RAM batches without truncating the unread WAL tail", async () => {
++    const {readFileSync,writeFileSync}=await import("node:fs");
++    const root=mkdtempSync(join(tmpdir(),"nerve-batched-recovery-"));
++    const entry=pathToFileURL(resolve(import.meta.dir,"../packages/nerve-bun")).href;
++    const prefix=`const {Engine,DbMode}=await import(${JSON.stringify(entry)});`;
++    const run=(folder:string,body:string)=>Bun.spawnSync([process.execPath,"-e",prefix+body],{cwd:join(root,folder),stdout:"pipe",stderr:"pipe",timeout:20000});
++    try {
++        for(const folder of ["left","right","recovered"]) mkdirSync(join(root,folder,"db"),{recursive:true});
++        for(const [folder,start] of [["left",0],["right",60000]] as const) {
++            const result=run(folder,`Engine.setMode(DbMode.FastWal);for(let i=${start};i<${start+60000};i++)Engine.upsertArticle(i,"row"+i,["article:"+i,...Array.from({length:11},(_,k)=>"common:"+k)]);process.exit(0);`);
++            expect(result.exitCode).toBe(0);
++        }
++        // Both streams consist entirely of native, committed WAL frames. Their combination
++        // exceeds the 2,000,000-u32 replay buffer without rewriting any frame/header/CRC.
++        writeFileSync(join(root,"recovered/db/changes.log.bin"),Buffer.concat([
++            readFileSync(join(root,"left/db/changes.log.bin")),readFileSync(join(root,"right/db/changes.log.bin"))]));
++        for(let pass=0;pass<2;pass++) {
++            const result=run("recovered",`console.log(JSON.stringify([0,59999,60000,119999].map(id=>Engine.getArticleText(id))));`);
++            expect(result.exitCode).toBe(0);
++            expect(JSON.parse(result.stdout.toString())).toEqual(["row0","row59999","row60000","row119999"]);
++        }
++    } finally {rmSync(root,{recursive:true,force:true});}
++});
