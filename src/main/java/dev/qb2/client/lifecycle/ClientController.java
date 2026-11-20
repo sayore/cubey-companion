@@ -754,6 +754,9 @@ public final class ClientController {
     if (s.style != null && !s.style.isBlank()) contextMap.put("style", s.style);
     if (s.companionName != null && !s.companionName.isBlank())
       contextMap.put("companionName", s.companionName);
+    if (s.language != null && !s.language.isBlank() && !"auto".equals(s.language)) {
+      contextMap.put("language", s.languageLabel());
+    }
     var job =
         new Mind.Job(
             epoch,
@@ -1263,15 +1266,28 @@ public final class ClientController {
   }
 
   private void speakLocally(String rawSpeech) {
-    String speech = rawSpeech.replace('\n', ' ');
+    // Strip accidental internal alias leaks like "(b1)" or "(e2)" so speech stays natural
+    String speech =
+        rawSpeech
+            .replace('\n', ' ')
+            .replaceAll("\\s*\\([be]\\d+\\)", "")
+            .replaceAll("\\s{2,}", " ")
+            .trim();
     var s = configuration.settings();
     String name = s.companionName == null || s.companionName.isBlank() ? "Cubey" : s.companionName;
     session.chat.add(ChatHistory.Source.QB2, speech, session.tick);
     summarizer.record(scope, "speech", speech).ifPresent(this::queueBackgroundEpisode);
     audio.speak(mc, s, session.motion.position(), speech);
-    mc.gui.getChat().addMessage(Component.literal("[" + name + "] " + speech));
+    int rgb = s.chatColorRgb();
+    mc.gui
+        .getChat()
+        .addMessage(
+            Component.literal("[" + name + "] ")
+                .withStyle(st -> st.withColor(rgb).withBold(true))
+                .append(Component.literal(speech).withStyle(net.minecraft.ChatFormatting.WHITE)));
     if (s.serverChat && player.connection != null)
-      player.connection.sendChat("[" + name + "] " + speech.substring(0, Math.min(240, speech.length())));
+      player.connection.sendChat(
+          "[" + name + "] " + speech.substring(0, Math.min(240, speech.length())));
   }
 
   private String scope() {

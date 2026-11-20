@@ -30,6 +30,7 @@ public final class SettingsScreen extends Screen {
           "whisperLanguage");
   private static final List<String> TAB_BEHAVIOR =
       List.of(
+          "language",
           "autonomous",
           "smoothFollow",
           "multiplayerSync",
@@ -71,6 +72,8 @@ public final class SettingsScreen extends Screen {
       List.of("neo_cyan", "sakura", "amethyst", "solar", "emerald", "frost");
   private static final List<String> SKINS =
       List.of("obsidian", "porcelain", "brass", "holo", "carbon", "pastel");
+  private static final List<String> LANGUAGES =
+      List.of("de", "en", "auto", "fr", "es", "ja");
 
   private record SliderSpec(double min, double max, boolean integer, String suffix) {}
 
@@ -92,6 +95,7 @@ public final class SettingsScreen extends Screen {
 
   private static final Map<String, String> FRIENDLY_LABELS =
       Map.ofEntries(
+          Map.entry("language", "Sprache / Language"),
           Map.entry("apiKey", "API Key (Masked)"),
           Map.entry("nerveKey", "NERVE Token (Masked)"),
           Map.entry("fallbackApiKey", "Fallback Key (Masked)"),
@@ -225,11 +229,16 @@ public final class SettingsScreen extends Screen {
       labels.add(FRIENDLY_LABELS.getOrDefault(name, name));
       String current = values.getOrDefault(name, "");
       boolean bool = current.equals("true") || current.equals("false");
-      if (name.equals("voiceMode") || name.equals("cubeyTheme") || name.equals("cubeySkin")) {
+      if (name.equals("voiceMode")
+          || name.equals("cubeyTheme")
+          || name.equals("cubeySkin")
+          || name.equals("language")) {
         List<String> cycle =
             name.equals("voiceMode")
                 ? VOICE_MODES
-                : name.equals("cubeySkin") ? SKINS : THEMES;
+                : name.equals("cubeySkin")
+                    ? SKINS
+                    : name.equals("language") ? LANGUAGES : THEMES;
         addRenderableWidget(
             Button.builder(
                     Component.literal(formatChoiceLabel(name, current)),
@@ -557,6 +566,16 @@ public final class SettingsScreen extends Screen {
   }
 
   private static String formatChoiceLabel(String field, String val) {
+    if ("language".equals(field)) {
+      return switch (val) {
+        case "auto" -> "Auto (Match Player)";
+        case "en" -> "English";
+        case "fr" -> "Français";
+        case "es" -> "Español";
+        case "ja" -> "日本語";
+        default -> "Deutsch";
+      };
+    }
     if ("voiceMode".equals(field)) {
       return switch (val) {
         case "silent" -> "Still (Mute)";

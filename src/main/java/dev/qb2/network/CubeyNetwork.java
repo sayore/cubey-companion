@@ -32,6 +32,8 @@ public final class CubeyNetwork {
   public static volatile Consumer<S2CPackSyncPayload> clientPackSyncReceiver;
   public static volatile Consumer<S2CTaskVisualPayload> clientTaskVisualReceiver;
   public static volatile BiConsumer<ServerPlayer, C2SPackActionPayload> serverPackActionHandler;
+  public static volatile BiConsumer<ServerPlayer, C2SPackSlotClickPayload>
+      serverPackSlotClickHandler;
 
   public record C2STelemetryPayload(
       double x,
@@ -196,6 +198,26 @@ public final class CubeyNetwork {
     }
   }
 
+  public record C2SPackSlotClickPayload(int slot, int button, boolean shift)
+      implements CustomPacketPayload {
+    public static final Type<C2SPackSlotClickPayload> TYPE =
+        new Type<>(ResourceLocation.fromNamespaceAndPath("qb2", "c2s_pack_slot_click"));
+
+    public static final StreamCodec<FriendlyByteBuf, C2SPackSlotClickPayload> CODEC =
+        StreamCodec.of(
+            (buf, p) -> {
+              buf.writeVarInt(p.slot);
+              buf.writeVarInt(p.button);
+              buf.writeBoolean(p.shift);
+            },
+            buf -> new C2SPackSlotClickPayload(buf.readVarInt(), buf.readVarInt(), buf.readBoolean()));
+
+    @Override
+    public Type<? extends CustomPacketPayload> type() {
+      return TYPE;
+    }
+  }
+
   public record S2CPackSyncPayload(
       String equipItemId,
       int equipCount,
@@ -296,6 +318,10 @@ public final class CubeyNetwork {
         C2SPackActionPayload.TYPE,
         C2SPackActionPayload.CODEC,
         CubeyNetwork::handlePackActionServer);
+    registrar.playToServer(
+        C2SPackSlotClickPayload.TYPE,
+        C2SPackSlotClickPayload.CODEC,
+        CubeyNetwork::handlePackSlotClickServer);
     registrar.playToClient(
         S2CPackSyncPayload.TYPE, S2CPackSyncPayload.CODEC, CubeyNetwork::handlePackSyncClient);
     registrar.playToClient(
@@ -393,6 +419,16 @@ public final class CubeyNetwork {
         () -> {
           if (!(ctx.player() instanceof ServerPlayer player)) return;
           var handler = serverPackActionHandler;
+          if (handler != null) handler.accept(player, payload);
+        });
+  }
+
+  private static void handlePackSlotClickServer(
+      C2SPackSlotClickPayload payload, IPayloadContext ctx) {
+    ctx.enqueueWork(
+        () -> {
+          if (!(ctx.player() instanceof ServerPlayer player)) return;
+          var handler = serverPackSlotClickHandler;
           if (handler != null) handler.accept(player, payload);
         });
   }

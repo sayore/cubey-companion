@@ -120,6 +120,36 @@ public record InferenceSnapshot(
     if (attentionTarget != null) {
       context.put("focus", "b1: " + attentionTarget.name());
     }
+    // Mod-agnostic connected machine topology analysis (follows ONLY connected machines/pipes/fans)
+    String machineGraphSummary = "";
+    net.minecraft.core.BlockPos graphSeed = null;
+    if (mc.hitResult instanceof net.minecraft.world.phys.BlockHitResult bhr) {
+      graphSeed = bhr.getBlockPos();
+    } else if (attentionTarget != null) {
+      graphSeed =
+          net.minecraft.core.BlockPos.containing(
+              attentionTarget.position().x(),
+              attentionTarget.position().y(),
+              attentionTarget.position().z());
+    }
+    if (graphSeed != null) {
+      var graph = dev.qb2.perception.world.MachineGraphAnalyzer.analyze(level, graphSeed);
+      if (graph != null) {
+        machineGraphSummary = graph.summary();
+        session.lastMachineGraph = machineGraphSummary;
+        session.lastMachineGraphTick = session.tick;
+      }
+    }
+    if (machineGraphSummary.isBlank()
+        && direct
+        && !session.lastMachineGraph.isBlank()
+        && session.tick - session.lastMachineGraphTick <= 500) {
+      // Preserve recently analyzed contraption for follow-up questions ("was für ressourcen denn?")
+      machineGraphSummary = session.lastMachineGraph;
+    }
+    if (!machineGraphSummary.isBlank()) {
+      context.put("machineGraph", machineGraphSummary);
+    }
     var recentChat = session.chat.snapshot();
     if (!recentChat.isEmpty()) {
       context.put(
@@ -205,7 +235,8 @@ public record InferenceSnapshot(
             compactInventory,
             knowledgeScope,
             playerPosition,
-            localCatalogFacts);
+            localCatalogFacts,
+            machineGraphSummary);
     var events = new ArrayList<Episode>();
     if (!text.isBlank())
       events.add(

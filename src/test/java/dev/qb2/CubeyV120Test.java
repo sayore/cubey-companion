@@ -60,4 +60,36 @@ final class CubeyV120Test {
     assertEquals(24, hit.get().interactWobbleTicks);
     assertEquals("♥", hit.get().speech);
   }
+
+  @Test
+  void toolRegistrySupportsInspectMachineGraph() {
+    var snap =
+        new dev.qb2.cognition.tools.ToolSnapshot(
+            java.util.Map.of(),
+            java.util.Map.of(),
+            "",
+            "",
+            "",
+            null,
+            java.util.List.of(),
+            "Connected assembly (6 blocks around depot): 3x create:encased_fan, 3x create:depot | Flows: encased_fan --(water (Bulk Washing))--> depot");
+    String out =
+        dev.qb2.cognition.tools.ToolRegistry.executeOne(
+            new dev.qb2.cognition.tools.ToolRegistry.Call("inspect_machine_graph", ""),
+            snap,
+            null,
+            "");
+    assertTrue(out.contains("Bulk Washing"));
+    assertTrue(out.contains("create:depot"));
+  }
+
+  @Test
+  void settingsLanguageAndChatColorWork() {
+    var s = new dev.qb2.client.config.Settings();
+    s.language = "de";
+    s.cubeyTheme = "sakura";
+    s.validate();
+    assertEquals("Deutsch", s.languageLabel());
+    assertEquals(0xFF88C8, s.chatColorRgb());
+  }
 }

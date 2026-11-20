@@ -25,6 +25,7 @@ public final class Settings {
   public String cubeyTheme = "neo_cyan";
   public String cubeySkin = "obsidian";
   public String companionName = "Cubey";
+  public String language = "de";
   public String triggers = "@cube,@qb,qb2";
   public String style = "calm";
 
@@ -89,6 +90,7 @@ public final class Settings {
     c.cubeyTheme = cubeyTheme;
     c.cubeySkin = cubeySkin;
     c.companionName = companionName;
+    c.language = language;
     c.triggers = triggers;
     c.style = style;
     return c;
@@ -118,6 +120,8 @@ public final class Settings {
         .contains(cubeySkin)) cubeySkin = "obsidian";
     companionName = dev.qb2.network.CubeySyncValidator.sanitizeName(companionName);
     if (companionName.isBlank()) companionName = "Cubey";
+    if (!java.util.Set.of("auto", "de", "en", "fr", "es", "ja").contains(language))
+      language = "de";
     if (modelChain == null) modelChain = "";
     if (ambientModel == null) ambientModel = "";
     if (fallbackProvider == null) fallbackProvider = "";
@@ -152,6 +156,28 @@ public final class Settings {
       String fe = fallbackEndpoint.isBlank() ? endpoint : fallbackEndpoint;
       dev.qb2.inference.HttpTransport.validateEndpoint(fe);
     }
+  }
+
+  public int chatColorRgb() {
+    return switch (cubeyTheme == null ? "neo_cyan" : cubeyTheme) {
+      case "sakura" -> 0xFF88C8;
+      case "amethyst" -> 0xC278FF;
+      case "solar" -> 0xFFD055;
+      case "emerald" -> 0x48F098;
+      case "frost" -> 0x9EE6FF;
+      default -> 0x48D6FF;
+    };
+  }
+
+  public String languageLabel() {
+    return switch (language == null ? "de" : language) {
+      case "auto" -> "Auto";
+      case "en" -> "English";
+      case "fr" -> "Français";
+      case "es" -> "Español";
+      case "ja" -> "日本語";
+      default -> "Deutsch";
+    };
   }
 
   private static double finite(double value, double min, double max) {

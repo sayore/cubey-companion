@@ -14,9 +14,29 @@ public record ToolSnapshot(
     String inventorySummary,
     String knowledgeScope,
     Point playerPosition,
-    List<String> localCatalogFacts) {
+    List<String> localCatalogFacts,
+    String machineGraphSummary) {
   public static final ToolSnapshot EMPTY =
-      new ToolSnapshot(Map.of(), Map.of(), "", "", "", null, List.of());
+      new ToolSnapshot(Map.of(), Map.of(), "", "", "", null, List.of(), "");
+
+  public ToolSnapshot(
+      Map<String, String> aliasToFullKey,
+      Map<String, String> detailsByAlias,
+      String areaScan,
+      String inventorySummary,
+      String knowledgeScope,
+      Point playerPosition,
+      List<String> localCatalogFacts) {
+    this(
+        aliasToFullKey,
+        detailsByAlias,
+        areaScan,
+        inventorySummary,
+        knowledgeScope,
+        playerPosition,
+        localCatalogFacts,
+        "");
+  }
 
   public ToolSnapshot(
       Map<String, String> aliasToFullKey,
@@ -32,7 +52,8 @@ public record ToolSnapshot(
         inventorySummary,
         knowledgeScope,
         playerPosition,
-        List.of());
+        List.of(),
+        "");
   }
 
   public String resolveTarget(String rawTarget) {

@@ -138,6 +138,7 @@ public final class CubeyServerHelper {
     if (registered) return;
     registered = true;
     CubeyNetwork.serverPackActionHandler = CubeyServerHelper::handlePackAction;
+    CubeyNetwork.serverPackSlotClickHandler = CubeyServerHelper::handlePackSlotClick;
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onServerTick);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onIncomingDamage);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerLogin);
@@ -159,6 +160,93 @@ public final class CubeyServerHelper {
       case "request_sync" -> CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
       default -> {}
     }
+  }
+
+  /**
+   * Direct server-authoritative slot click on Cubey's inline Inventory bar (slot 0 = Equipment,
+   * slots 1..6 = 6 Backpack Slots). Supports LMB swap/merge, RMB split/place-one, and Shift-Click
+   * quick-move into the player's inventory without opening any separate menu!
+   */
+  private static void handlePackSlotClick(
+      ServerPlayer player, CubeyNetwork.C2SPackSlotClickPayload payload) {
+    if (!player.isAlive() || player.isSpectator()) return;
+    int slot = payload.slot();
+    if (slot < 0 || slot >= CubeyPackStorage.TOTAL_SLOTS) return;
+    int button = payload.button();
+    if (button != 0 && button != 1) return;
+
+    CubeyPackStorage storage = CubeyPackStorage.get(player.server);
+    CubeyPackStorage.PlayerPack pack = storage.getOrCreate(player.getUUID());
+    ItemStack slotStack = pack.items.get(slot);
+    ItemStack carried = player.containerMenu.getCarried();
+
+    if (payload.shift()) {
+      if (slotStack.isEmpty()) return;
+      ItemStack moving = slotStack.copy();
+      if (player.getInventory().add(moving)) {
+        pack.items.set(slot, ItemStack.EMPTY);
+      } else {
+        pack.items.set(slot, moving);
+      }
+      player.containerMenu.broadcastChanges();
+      storage.setDirty();
+      CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
+      return;
+    }
+
+    if (button == 0) {
+      // LMB: place, merge, or swap
+      if (!carried.isEmpty()
+          && slot == CubeyPackStorage.EQUIP_SLOT
+          && !CubeyPackStorage.isValidEquipment(carried)) {
+        return;
+      }
+      if (slotStack.isEmpty()) {
+        if (!carried.isEmpty()) {
+          pack.items.set(slot, carried.copy());
+          player.containerMenu.setCarried(ItemStack.EMPTY);
+        }
+      } else if (carried.isEmpty()) {
+        player.containerMenu.setCarried(slotStack.copy());
+        pack.items.set(slot, ItemStack.EMPTY);
+      } else if (ItemStack.isSameItemSameComponents(slotStack, carried)
+          && slotStack.getCount() < slotStack.getMaxStackSize()) {
+        int move = Math.min(carried.getCount(), slotStack.getMaxStackSize() - slotStack.getCount());
+        slotStack.grow(move);
+        carried.shrink(move);
+        player.containerMenu.setCarried(carried.isEmpty() ? ItemStack.EMPTY : carried);
+      } else {
+        pack.items.set(slot, carried.copy());
+        player.containerMenu.setCarried(slotStack.copy());
+      }
+    } else {
+      // RMB: split half onto empty cursor, or place 1 from cursor into slot
+      if (carried.isEmpty()) {
+        if (!slotStack.isEmpty()) {
+          int take = (slotStack.getCount() + 1) / 2;
+          ItemStack picked = slotStack.split(take);
+          if (slotStack.isEmpty()) pack.items.set(slot, ItemStack.EMPTY);
+          player.containerMenu.setCarried(picked);
+        }
+      } else {
+        if (slot == CubeyPackStorage.EQUIP_SLOT && !CubeyPackStorage.isValidEquipment(carried)) {
+          return;
+        }
+        if (slotStack.isEmpty()) {
+          pack.items.set(slot, carried.split(1));
+          player.containerMenu.setCarried(carried.isEmpty() ? ItemStack.EMPTY : carried);
+        } else if (ItemStack.isSameItemSameComponents(slotStack, carried)
+            && slotStack.getCount() < slotStack.getMaxStackSize()) {
+          slotStack.grow(1);
+          carried.shrink(1);
+          player.containerMenu.setCarried(carried.isEmpty() ? ItemStack.EMPTY : carried);
+        }
+      }
+    }
+
+    player.containerMenu.broadcastChanges();
+    storage.setDirty();
+    CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
   }
 
   private static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {

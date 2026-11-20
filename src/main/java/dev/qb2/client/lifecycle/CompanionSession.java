@@ -49,6 +49,8 @@ public final class CompanionSession {
   public Point serverTaskPos;
   public int serverTaskTicks;
   public int combatActionTicks;
+  public String lastMachineGraph = "";
+  public long lastMachineGraphTick = -10000;
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
   public volatile boolean apiBackoff;

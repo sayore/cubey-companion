@@ -13,7 +13,13 @@ public final class ToolRegistry {
   public record Call(String tool, String arg) {}
 
   public static final Set<String> TOOLS =
-      Set.of("inspect_details", "scan_area", "check_inventory", "search_memory", "lookup_recipe");
+      Set.of(
+          "inspect_details",
+          "inspect_machine_graph",
+          "scan_area",
+          "check_inventory",
+          "search_memory",
+          "lookup_recipe");
 
   private ToolRegistry() {}
 
@@ -50,6 +56,10 @@ public final class ToolRegistry {
           snap.areaScan().isBlank()
               ? "No notable non-terrain blocks found nearby."
               : snap.areaScan();
+      case "inspect_machine_graph" ->
+          snap.machineGraphSummary().isBlank()
+              ? "No connected machine or logistics assembly detected at the current focus."
+              : snap.machineGraphSummary();
       case "check_inventory" ->
           snap.inventorySummary().isBlank()
               ? "Inventory is empty and no container is open."
