@@ -1,0 +1,24 @@
+package dev.qb2.cognition.tools;
+
+import dev.qb2.companion.movement.Point;
+import java.util.*;
+
+/**
+ * Immutable, client-captured data backing read-only worker-thread tool calls without touching live
+ * Minecraft state from background threads.
+ */
+public record ToolSnapshot(
+    Map<String, String> aliasToFullKey,
+    Map<String, String> detailsByAlias,
+    String areaScan,
+    String inventorySummary,
+    String knowledgeScope,
+    Point playerPosition) {
+  public static final ToolSnapshot EMPTY =
+      new ToolSnapshot(Map.of(), Map.of(), "", "", "", null);
+
+  public String resolveTarget(String rawTarget) {
+    if (rawTarget == null || rawTarget.isBlank()) return "";
+    return aliasToFullKey.getOrDefault(rawTarget.trim(), rawTarget.trim());
+  }
+}

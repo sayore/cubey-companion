@@ -30,6 +30,8 @@ public final class CompanionSession {
   private Observation actionTarget;
   public final FlightPlanner flight = new FlightPlanner();
   public final PlayerTrail trail = new PlayerTrail();
+  public final dev.qb2.cognition.decisions.ActionQueue actionQueue =
+      new dev.qb2.cognition.decisions.ActionQueue();
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
   public volatile boolean apiBackoff;
@@ -139,8 +141,26 @@ public final class CompanionSession {
             mc.player.position().add(forward.scale(1.3)).add(side.scale(0.8)).add(0, 1.6, 0));
     if (tick == 1) motion.reset(home);
     if (actionUntil < tick && !perched) {
-      action = "observe";
-      actionTarget = null;
+      var queued = actionQueue.pollNext();
+      if (queued.isPresent()) {
+        var step = queued.get();
+        action = step.action();
+        actionUntil = tick + 120;
+        actionTarget =
+            step.target().isBlank()
+                ? null
+                : observations.stream()
+                    .filter(o -> o.key().equals(step.target()))
+                    .findFirst()
+                    .orElse(null);
+        if (actionTarget != null) {
+          attention.select(actionTarget, tick);
+          attention.holdUntil(actionUntil);
+        }
+      } else {
+        action = "observe";
+        actionTarget = null;
+      }
     }
     // Auto-perch when resting or quietly hanging around the player's factory.
     if (!perched && ("rest".equals(action) || (tick > 600 && tick - lastSpeech > 800 && !thinking && tick % 200 == 0 && player.distance(motion.position()) < settings.exploreRadius))) {
@@ -237,6 +257,11 @@ public final class CompanionSession {
                 attention.select(o, tick);
                 actionTarget = o;
               });
+    if (!d.plan().isEmpty()) {
+      for (var step : d.plan()) {
+        actionQueue.push(step.action(), step.target(), step.priority());
+      }
+    }
     remember(actions, "t=" + tick + " " + d.action() + " " + d.target(), 12);
     if (!d.thought().isBlank() && !recentThoughts.contains(d.thought())) {
       remember(recentThoughts, d.thought(), 8);

@@ -1,11 +1,25 @@
 package dev.qb2.cognition.decisions;
 
 import com.google.gson.*;
-import java.util.Set;
+import dev.qb2.cognition.tools.ToolRegistry;
+import java.util.*;
 
-public record Decision(String action, String target, String thought, String speech, String memory) {
+public record Decision(
+    String action,
+    String target,
+    String thought,
+    String speech,
+    String memory,
+    List<ToolRegistry.Call> toolCalls,
+    List<PlannedStep> plan) {
+  public record PlannedStep(String action, String target, int priority) {}
+
   public Decision(String action, String target, String thought, String speech) {
-    this(action, target, thought, speech, "");
+    this(action, target, thought, speech, "", List.of(), List.of());
+  }
+
+  public Decision(String action, String target, String thought, String speech, String memory) {
+    this(action, target, thought, speech, memory, List.of(), List.of());
   }
 
   public static final Set<String> ACTIONS =
@@ -20,7 +34,16 @@ public record Decision(String action, String target, String thought, String spee
           "rest",
           "recall");
 
+  private static final Set<String> TARGET_ACTIONS = Set.of("inspect", "approach", "go_to", "orbit");
+  private static final Set<String> ALLOWED_KEYS =
+      Set.of("action", "target", "thought", "speech", "memory", "tool_calls", "plan");
+
   public static Decision parse(String text, Set<String> visibleTargets) {
+    return parse(text, visibleTargets, Map.of());
+  }
+
+  public static Decision parse(
+      String text, Set<String> visibleTargets, Map<String, String> aliasToFullKey) {
     String json = text.trim();
     if (json.startsWith("```")) {
       int newline = json.indexOf('\n');
@@ -30,19 +53,74 @@ public record Decision(String action, String target, String thought, String spee
     }
     JsonObject o = JsonParser.parseString(json).getAsJsonObject();
     for (String key : o.keySet())
-      if (!Set.of("action", "target", "thought", "speech", "memory").contains(key))
+      if (!ALLOWED_KEYS.contains(key))
         throw new IllegalArgumentException("Unknown decision property");
-    String action = string(o, "action", 30), target = string(o, "target", 200);
+
+    var toolCalls = parseToolCalls(o);
+    String action = string(o, "action", 30);
+    if (action.isBlank() && !toolCalls.isEmpty()) action = "observe";
     if (!ACTIONS.contains(action)) throw new IllegalArgumentException("Action unavailable");
-    if (Set.of("inspect", "approach", "go_to", "orbit").contains(action)
-        && !visibleTargets.contains(target))
+
+    String rawTarget = string(o, "target", 200);
+    String target = resolve(rawTarget, aliasToFullKey);
+    if (TARGET_ACTIONS.contains(action) && !visibleTargets.contains(target))
       throw new IllegalArgumentException("Target not visible");
+
+    var plan = parsePlan(o, visibleTargets, aliasToFullKey);
     return new Decision(
         action,
         target,
         string(o, "thought", 360),
-        string(o, "speech", 500),
-        string(o, "memory", 600));
+        string(o, "speech", 900),
+        string(o, "memory", 600),
+        toolCalls,
+        plan);
+  }
+
+  private static String resolve(String raw, Map<String, String> aliases) {
+    if (raw == null || raw.isBlank()) return "";
+    if (aliases != null && aliases.containsKey(raw)) return aliases.get(raw);
+    return raw;
+  }
+
+  private static List<ToolRegistry.Call> parseToolCalls(JsonObject o) {
+    if (!o.has("tool_calls") || o.get("tool_calls").isJsonNull()) return List.of();
+    if (!o.get("tool_calls").isJsonArray())
+      throw new IllegalArgumentException("tool_calls must be an array");
+    var out = new ArrayList<ToolRegistry.Call>();
+    for (var el : o.getAsJsonArray("tool_calls")) {
+      if (!el.isJsonObject()) continue;
+      var obj = el.getAsJsonObject();
+      String tool = string(obj, "tool", 40);
+      String arg = string(obj, "arg", 120);
+      if (ToolRegistry.TOOLS.contains(tool)) {
+        out.add(new ToolRegistry.Call(tool, arg));
+      }
+      if (out.size() >= 4) break;
+    }
+    return List.copyOf(out);
+  }
+
+  private static List<PlannedStep> parsePlan(
+      JsonObject o, Set<String> visibleTargets, Map<String, String> aliases) {
+    if (!o.has("plan") || o.get("plan").isJsonNull()) return List.of();
+    if (!o.get("plan").isJsonArray()) throw new IllegalArgumentException("plan must be an array");
+    var out = new ArrayList<PlannedStep>();
+    for (var el : o.getAsJsonArray("plan")) {
+      if (!el.isJsonObject()) continue;
+      var obj = el.getAsJsonObject();
+      String act = string(obj, "action", 30);
+      if (!ACTIONS.contains(act)) continue;
+      String tgt = resolve(string(obj, "target", 200), aliases);
+      if (TARGET_ACTIONS.contains(act) && !visibleTargets.contains(tgt)) continue;
+      int prio =
+          obj.has("priority") && obj.get("priority").isJsonPrimitive()
+              ? Math.clamp(obj.get("priority").getAsInt(), 0, 10)
+              : 1;
+      out.add(new PlannedStep(act, tgt, prio));
+      if (out.size() >= ActionQueue.DEFAULT_CAPACITY) break;
+    }
+    return List.copyOf(out);
   }
 
   private static String string(JsonObject o, String key, int max) {

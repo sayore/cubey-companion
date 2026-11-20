@@ -3,6 +3,8 @@ package dev.qb2.cognition.planning;
 import dev.qb2.client.config.Settings;
 import dev.qb2.cognition.context.ContextBuilder;
 import dev.qb2.cognition.decisions.Decision;
+import dev.qb2.cognition.tools.ToolRegistry;
+import dev.qb2.cognition.tools.ToolSnapshot;
 import dev.qb2.inference.HttpTransport;
 import dev.qb2.inference.provider.ApiLanguageModel;
 import dev.qb2.memory.*;
@@ -25,7 +27,8 @@ public final class Mind implements AutoCloseable {
       List<String> keywords,
       Set<String> targets,
       List<Episode> events,
-      String fallbackApiKey) {
+      String fallbackApiKey,
+      ToolSnapshot tools) {
     public Job(
         long epoch,
         String scope,
@@ -37,7 +40,46 @@ public final class Mind implements AutoCloseable {
         List<String> keywords,
         Set<String> targets,
         List<Episode> events) {
-      this(epoch, scope, reason, settings, apiKey, nerveKey, context, keywords, targets, events, "");
+      this(
+          epoch,
+          scope,
+          reason,
+          settings,
+          apiKey,
+          nerveKey,
+          context,
+          keywords,
+          targets,
+          events,
+          "",
+          ToolSnapshot.EMPTY);
+    }
+
+    public Job(
+        long epoch,
+        String scope,
+        String reason,
+        Settings settings,
+        String apiKey,
+        String nerveKey,
+        Map<String, Object> context,
+        List<String> keywords,
+        Set<String> targets,
+        List<Episode> events,
+        String fallbackApiKey) {
+      this(
+          epoch,
+          scope,
+          reason,
+          settings,
+          apiKey,
+          nerveKey,
+          context,
+          keywords,
+          targets,
+          events,
+          fallbackApiKey,
+          ToolSnapshot.EMPTY);
     }
   }
 
@@ -206,7 +248,9 @@ public final class Mind implements AutoCloseable {
                     ambient
                         ? Math.min(job.settings().tokenBudget, 700)
                         : job.settings().tokenBudget;
-                String context = new ContextBuilder().build(sections, effectiveBudget);
+                ToolSnapshot toolSnapshot = job.tools() == null ? ToolSnapshot.EMPTY : job.tools();
+                var builder = new ContextBuilder();
+                String context = builder.build(sections, effectiveBudget);
                 status = "thinking";
                 var model =
                     new ApiLanguageModel(
@@ -215,7 +259,21 @@ public final class Mind implements AutoCloseable {
                 activeModel = model.lastUsedModel();
                 resetBackoff();
                 if (Thread.currentThread().isInterrupted() || epoch != job.epoch()) return;
-                Decision parsed = Decision.parse(response, job.targets());
+                Decision parsed =
+                    Decision.parse(response, job.targets(), toolSnapshot.aliasToFullKey());
+
+                // Bounded read-only tool-calling loop (max 2 tool rounds).
+                for (int round = 0; round < 2 && !parsed.toolCalls().isEmpty(); round++) {
+                  var toolResults =
+                      ToolRegistry.executeAll(parsed.toolCalls(), toolSnapshot, memory, job.scope());
+                  sections.put("tool_results", toolResults);
+                  context = builder.build(sections, Math.max(effectiveBudget, 1100));
+                  response = model.complete(context);
+                  activeModel = model.lastUsedModel();
+                  if (Thread.currentThread().isInterrupted() || epoch != job.epoch()) return;
+                  parsed = Decision.parse(response, job.targets(), toolSnapshot.aliasToFullKey());
+                }
+
                 Object recent = job.context().get("recentThoughts");
                 String thought =
                     recent instanceof List<?> list && list.contains(parsed.thought())
@@ -229,7 +287,9 @@ public final class Mind implements AutoCloseable {
                         Boolean.FALSE.equals(job.context().get("speechAllowed"))
                             ? ""
                             : parsed.speech(),
-                        parsed.memory());
+                        parsed.memory(),
+                        List.of(),
+                        parsed.plan());
                 if (!decision.thought().isBlank())
                   outbox.add(recollection(job, "thought", decision.thought()));
                 if (!decision.speech().isBlank())

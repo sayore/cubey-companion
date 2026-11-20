@@ -12,7 +12,7 @@ public final class Settings {
   public String nerveEndpoint = "http://127.0.0.1:17842";
   public int memoryTopK = 3;
   public double perceptionRadius = 10, exploreRadius = 7, fieldOfView = 110;
-  public int inferenceSeconds = 20, speechSeconds = 45, tokenBudget = 950, outputTokens = 450, timeoutSeconds = 25;
+  public int inferenceSeconds = 20, speechSeconds = 45, tokenBudget = 950, outputTokens = 600, timeoutSeconds = 25;
   public boolean autonomous = true, thoughts = true, speech = true, particles = true;
   public boolean sounds = true, showTargetBeam = true, smoothFollow = true;
   public boolean debug = false, paused = false, serverChat = false;

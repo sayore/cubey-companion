@@ -347,7 +347,8 @@ public final class ClientController {
             keywords,
             snapshot.targets(),
             List.copyOf(allEvents),
-            configuration.fallbackApiKey());
+            configuration.fallbackApiKey(),
+            snapshot.tools());
     mind.submit(job, outcome -> mc.execute(() -> apply(outcome)));
   }
 
