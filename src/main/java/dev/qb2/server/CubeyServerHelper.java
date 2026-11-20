@@ -146,6 +146,8 @@ public final class CubeyServerHelper {
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onServerTick);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onIncomingDamage);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerLogin);
+    NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerChangedDimension);
+    NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerRespawn);
     NeoForge.EVENT_BUS.addListener(CubeyServerHelper::onPlayerLogout);
   }
 
@@ -174,6 +176,8 @@ public final class CubeyServerHelper {
   private static void handlePackSlotClick(
       ServerPlayer player, CubeyNetwork.C2SPackSlotClickPayload payload) {
     if (!player.isAlive() || player.isSpectator()) return;
+    // Strict guard: inline inventory clicks are only valid while the player's own InventoryMenu is active
+    if (player.containerMenu != player.inventoryMenu) return;
     int slot = payload.slot();
     if (slot < 0 || slot >= CubeyPackStorage.TOTAL_SLOTS) return;
     int button = payload.button();
@@ -192,7 +196,7 @@ public final class CubeyServerHelper {
       } else {
         pack.items.set(slot, moving);
       }
-      player.containerMenu.broadcastChanges();
+      player.containerMenu.broadcastFullState();
       storage.setDirty();
       CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
       return;
@@ -248,7 +252,7 @@ public final class CubeyServerHelper {
       }
     }
 
-    player.containerMenu.broadcastChanges();
+    player.containerMenu.broadcastFullState();
     storage.setDirty();
     CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
   }
@@ -303,6 +307,20 @@ public final class CubeyServerHelper {
 
   private static void onPlayerLogin(PlayerEvent.PlayerLoggedInEvent event) {
     if (!(event.getEntity() instanceof ServerPlayer player)) return;
+    syncPack(player);
+  }
+
+  private static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
+    if (!(event.getEntity() instanceof ServerPlayer player)) return;
+    syncPack(player);
+  }
+
+  private static void onPlayerRespawn(PlayerEvent.PlayerRespawnEvent event) {
+    if (!(event.getEntity() instanceof ServerPlayer player)) return;
+    syncPack(player);
+  }
+
+  private static void syncPack(ServerPlayer player) {
     CubeyPackStorage storage = CubeyPackStorage.get(player.server);
     CubeyPackStorage.PlayerPack pack = storage.getOrCreate(player.getUUID());
     CubeyNetwork.sendPackSync(player, pack.toSyncPayload());
@@ -686,8 +704,8 @@ public final class CubeyServerHelper {
     ItemStack eq = pack.equipment();
     if (eq.isEmpty()) return;
 
-    // 1. Emergency Heal (Potion / Golden Apple) when player drops below 30% HP
-    if ((eq.getItem() instanceof PotionItem
+    // 1. Emergency Heal (Healing/Regen Potion or Golden Apple) when player drops below 30% HP
+    if ((isHealingPotion(eq)
             || eq.is(Items.GOLDEN_APPLE)
             || eq.is(Items.ENCHANTED_GOLDEN_APPLE))
         && player.getHealth() <= Math.max(6.0f, player.getMaxHealth() * 0.30f)
@@ -901,6 +919,16 @@ public final class CubeyServerHelper {
             22));
     level.playSound(
         null, player.blockPosition(), SoundEvents.SHIELD_BLOCK, SoundSource.PLAYERS, 0.85f, 1.2f);
+  }
+
+  private static boolean isHealingPotion(ItemStack stack) {
+    if (!(stack.getItem() instanceof PotionItem)) return false;
+    var contents = stack.get(net.minecraft.core.component.DataComponents.POTION_CONTENTS);
+    if (contents == null) return false;
+    for (MobEffectInstance eff : contents.getAllEffects()) {
+      if (eff.is(MobEffects.HEAL) || eff.is(MobEffects.REGENERATION)) return true;
+    }
+    return false;
   }
 
   private static void damageEquip(CubeyPackStorage.PlayerPack pack, ItemStack eq, int amount) {

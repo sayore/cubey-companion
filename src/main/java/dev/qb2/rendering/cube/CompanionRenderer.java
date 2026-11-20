@@ -299,11 +299,11 @@ public final class CompanionRenderer {
         sb);
     buffers.endBatch(type);
     if (!napping) {
-      renderEquippedItem(
+      renderEquippedStack(
           mc,
           poses,
           buffers,
-          dev.qb2.ui.overlay.CubeyInventoryOverlay.equippedItemId(),
+          dev.qb2.ui.overlay.CubeyInventoryOverlay.equippedStack(),
           time,
           session.combatActionTicks > 0);
     }
@@ -1479,9 +1479,24 @@ public final class CompanionRenderer {
       String itemId,
       double time,
       boolean combatActive) {
-    if (mc == null || mc.level == null || itemId == null || itemId.isBlank()) return;
-    var stack = dev.qb2.ui.overlay.CubeyInventoryOverlay.resolveItem(itemId, 1);
-    if (stack.isEmpty()) return;
+    if (itemId == null || itemId.isBlank()) return;
+    renderEquippedStack(
+        mc,
+        poses,
+        buffers,
+        dev.qb2.ui.overlay.CubeyInventoryOverlay.resolveItem(itemId, 1),
+        time,
+        combatActive);
+  }
+
+  private static void renderEquippedStack(
+      Minecraft mc,
+      PoseStack poses,
+      MultiBufferSource.BufferSource buffers,
+      net.minecraft.world.item.ItemStack stack,
+      double time,
+      boolean combatActive) {
+    if (mc == null || mc.level == null || stack == null || stack.isEmpty()) return;
     poses.pushPose();
     float bob = (float) Math.sin(time * 3.4) * 0.025f;
     float swing = combatActive ? (float) Math.sin(time * 28.0) * 32f : (float) Math.sin(time * 2.0) * 6f;

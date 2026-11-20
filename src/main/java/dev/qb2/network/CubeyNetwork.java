@@ -7,11 +7,13 @@ import java.util.UUID;
 import java.util.function.BiConsumer;
 import java.util.function.Consumer;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
@@ -235,46 +237,36 @@ public final class CubeyNetwork {
   }
 
   public record S2CPackSyncPayload(
-      String equipItemId,
-      int equipCount,
-      List<String> slotItemIds,
-      List<Integer> slotCounts,
-      int flags)
+      ItemStack equipStack, List<ItemStack> backpackStacks, int flags)
       implements CustomPacketPayload {
     public static final Type<S2CPackSyncPayload> TYPE =
         new Type<>(ResourceLocation.fromNamespaceAndPath("qb2", "s2c_pack_sync"));
 
-    public static final StreamCodec<FriendlyByteBuf, S2CPackSyncPayload> CODEC =
+    public static final StreamCodec<RegistryFriendlyByteBuf, S2CPackSyncPayload> CODEC =
         StreamCodec.of(
             (buf, p) -> {
-              buf.writeUtf(p.equipItemId == null ? "" : p.equipItemId, 64);
-              buf.writeVarInt(p.equipCount);
-              int n = Math.min(6, p.slotItemIds == null ? 0 : p.slotItemIds.size());
+              ItemStack.OPTIONAL_STREAM_CODEC.encode(
+                  buf, p.equipStack == null ? ItemStack.EMPTY : p.equipStack);
+              int n = Math.min(6, p.backpackStacks == null ? 0 : p.backpackStacks.size());
               buf.writeVarInt(n);
               for (int i = 0; i < n; i++) {
-                String id = p.slotItemIds.get(i);
-                int cnt = (p.slotCounts != null && i < p.slotCounts.size()) ? p.slotCounts.get(i) : 0;
-                buf.writeUtf(id == null ? "" : id, 64);
-                buf.writeVarInt(cnt);
+                ItemStack st = p.backpackStacks.get(i);
+                ItemStack.OPTIONAL_STREAM_CODEC.encode(buf, st == null ? ItemStack.EMPTY : st);
               }
               buf.writeVarInt(p.flags);
             },
             buf -> {
-              String eqId = buf.readUtf(64);
-              int eqCnt = buf.readVarInt();
+              ItemStack eq = ItemStack.OPTIONAL_STREAM_CODEC.decode(buf);
               int n = Math.clamp(buf.readVarInt(), 0, 6);
-              List<String> ids = new ArrayList<>(6);
-              List<Integer> cnts = new ArrayList<>(6);
+              List<ItemStack> stacks = new ArrayList<>(6);
               for (int i = 0; i < n; i++) {
-                ids.add(buf.readUtf(64));
-                cnts.add(buf.readVarInt());
+                stacks.add(ItemStack.OPTIONAL_STREAM_CODEC.decode(buf));
               }
-              while (ids.size() < 6) {
-                ids.add("");
-                cnts.add(0);
+              while (stacks.size() < 6) {
+                stacks.add(ItemStack.EMPTY);
               }
               int fl = buf.readVarInt();
-              return new S2CPackSyncPayload(eqId, eqCnt, ids, cnts, fl);
+              return new S2CPackSyncPayload(eq, stacks, fl);
             });
 
     @Override

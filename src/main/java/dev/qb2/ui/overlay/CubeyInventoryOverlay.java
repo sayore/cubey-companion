@@ -8,6 +8,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.client.gui.screens.inventory.ContainerScreen;
+import net.minecraft.client.gui.screens.inventory.CreativeModeInventoryScreen;
 import net.minecraft.client.gui.screens.inventory.InventoryScreen;
 import net.minecraft.client.resources.sounds.SimpleSoundInstance;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -29,10 +30,14 @@ import net.neoforged.neoforge.network.PacketDistributor;
 public final class CubeyInventoryOverlay {
   private static volatile CubeyNetwork.S2CPackSyncPayload syncedPack =
       new CubeyNetwork.S2CPackSyncPayload(
-          "",
-          0,
-          List.of("", "", "", "", "", ""),
-          List.of(0, 0, 0, 0, 0, 0),
+          ItemStack.EMPTY,
+          List.of(
+              ItemStack.EMPTY,
+              ItemStack.EMPTY,
+              ItemStack.EMPTY,
+              ItemStack.EMPTY,
+              ItemStack.EMPTY,
+              ItemStack.EMPTY),
           CubeyPackStorage.DEFAULT_FLAGS);
 
   private static final int BAR_W = 176;
@@ -58,15 +63,25 @@ public final class CubeyInventoryOverlay {
   public static void reset() {
     syncedPack =
         new CubeyNetwork.S2CPackSyncPayload(
-            "",
-            0,
-            List.of("", "", "", "", "", ""),
-            List.of(0, 0, 0, 0, 0, 0),
+            ItemStack.EMPTY,
+            List.of(
+                ItemStack.EMPTY,
+                ItemStack.EMPTY,
+                ItemStack.EMPTY,
+                ItemStack.EMPTY,
+                ItemStack.EMPTY,
+                ItemStack.EMPTY),
             CubeyPackStorage.DEFAULT_FLAGS);
   }
 
+  public static ItemStack equippedStack() {
+    ItemStack eq = syncedPack.equipStack();
+    return eq == null ? ItemStack.EMPTY : eq;
+  }
+
   public static String equippedItemId() {
-    return syncedPack.equipItemId();
+    ItemStack eq = equippedStack();
+    return eq.isEmpty() ? "" : BuiltInRegistries.ITEM.getKey(eq.getItem()).toString();
   }
 
   public static ItemStack resolveItem(String itemId, int count) {
@@ -100,12 +115,13 @@ public final class CubeyInventoryOverlay {
 
   private static ItemStack stackForSlot(int slotIndex) {
     if (slotIndex == 0) {
-      return resolveItem(syncedPack.equipItemId(), syncedPack.equipCount());
+      return equippedStack();
     }
     int idx = slotIndex - 1;
-    if (idx < 0 || idx >= syncedPack.slotItemIds().size()) return ItemStack.EMPTY;
-    int cnt = idx < syncedPack.slotCounts().size() ? syncedPack.slotCounts().get(idx) : 0;
-    return resolveItem(syncedPack.slotItemIds().get(idx), cnt);
+    var list = syncedPack.backpackStacks();
+    if (list == null || idx < 0 || idx >= list.size()) return ItemStack.EMPTY;
+    ItemStack st = list.get(idx);
+    return st == null ? ItemStack.EMPTY : st;
   }
 
   public static void onScreenRender(ScreenEvent.Render.Post event) {
@@ -114,6 +130,16 @@ public final class CubeyInventoryOverlay {
 
     if (event.getScreen() instanceof InventoryScreen inv) {
       renderTopDockedBar(mc, inv, event.getGuiGraphics(), event.getMouseX(), event.getMouseY());
+    } else if (event.getScreen() instanceof CreativeModeInventoryScreen cis) {
+      int bx = cis.getGuiLeft() + cis.getXSize() - 48;
+      int by = Math.max(2, cis.getGuiTop() - 48);
+      int mx = event.getMouseX();
+      int my = event.getMouseY();
+      boolean hover = mx >= bx && mx <= bx + 46 && my >= by && my <= by + 16;
+      var gg = event.getGuiGraphics();
+      gg.fill(bx, by, bx + 46, by + 16, hover ? 0xEE183344 : 0xDD101C28);
+      gg.renderOutline(bx, by, 46, 16, hover ? 0xFF66EEFF : 0xFF3A7B99);
+      gg.drawCenteredString(mc.font, "✦ Pack", bx + 23, by + 4, hover ? 0xFFFFFF : 0xB8EEFF);
     } else if (event.getScreen() instanceof ContainerScreen cs
         && CubeyPackMenu.MENU_TITLE.equals(cs.getTitle().getString())) {
       renderPackContainerDecor(mc, cs, event.getGuiGraphics(), event.getMouseX(), event.getMouseY());
@@ -165,6 +191,14 @@ public final class CubeyInventoryOverlay {
       }
       // Consume stray clicks inside bar background so carried items are never accidentally dropped
       event.setCanceled(true);
+    } else if (button == 0 && event.getScreen() instanceof CreativeModeInventoryScreen cis) {
+      int bx = cis.getGuiLeft() + cis.getXSize() - 48;
+      int by = Math.max(2, cis.getGuiTop() - 48);
+      if (mx >= bx && mx <= bx + 46 && my >= by && my <= by + 16) {
+        PacketDistributor.sendToServer(new CubeyNetwork.C2SPackActionPayload("open", 0));
+        mc.getSoundManager().play(SimpleSoundInstance.forUI(SoundEvents.UI_BUTTON_CLICK, 1.2f));
+        event.setCanceled(true);
+      }
     } else if (button == 0
         && event.getScreen() instanceof ContainerScreen cs
         && CubeyPackMenu.MENU_TITLE.equals(cs.getTitle().getString())) {

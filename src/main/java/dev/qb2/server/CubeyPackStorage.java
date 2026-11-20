@@ -148,21 +148,12 @@ public final class CubeyPackStorage extends SavedData {
     }
 
     public CubeyNetwork.S2CPackSyncPayload toSyncPayload() {
-      ItemStack eq = equipment();
-      String eqId = eq.isEmpty() ? "" : BuiltInRegistries.ITEM.getKey(eq.getItem()).toString();
-      List<String> ids = new ArrayList<>(BACKPACK_SIZE);
-      List<Integer> counts = new ArrayList<>(BACKPACK_SIZE);
+      ItemStack eq = equipment().copy();
+      List<ItemStack> stacks = new ArrayList<>(BACKPACK_SIZE);
       for (int i = BACKPACK_START; i < TOTAL_SLOTS; i++) {
-        ItemStack st = items.get(i);
-        if (st.isEmpty()) {
-          ids.add("");
-          counts.add(0);
-        } else {
-          ids.add(BuiltInRegistries.ITEM.getKey(st.getItem()).toString());
-          counts.add(st.getCount());
-        }
+        stacks.add(items.get(i).copy());
       }
-      return new CubeyNetwork.S2CPackSyncPayload(eqId, eq.getCount(), ids, counts, flags);
+      return new CubeyNetwork.S2CPackSyncPayload(eq, stacks, flags);
     }
   }
 

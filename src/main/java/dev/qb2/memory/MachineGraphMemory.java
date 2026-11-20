@@ -135,6 +135,14 @@ public final class MachineGraphMemory {
         .toList();
   }
 
+  public synchronized void copyFrom(MachineGraphMemory other) {
+    if (other == null) return;
+    machines.clear();
+    synchronized (other) {
+      machines.addAll(other.machines);
+    }
+  }
+
   public synchronized void clear() {
     machines.clear();
   }

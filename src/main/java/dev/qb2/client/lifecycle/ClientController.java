@@ -61,6 +61,7 @@ public final class ClientController {
   private long lastDirectConvoTick = -10000;
   private String lastDirectPrompt = "";
   private boolean wasPlayerIdle;
+  private boolean packSyncRequested;
   private long lastAmbientFallbackTick = -1000;
   private final dev.qb2.diagnostics.ClientSmokeProbe smoke =
       new dev.qb2.diagnostics.ClientSmokeProbe();
@@ -248,6 +249,7 @@ public final class ClientController {
     keywords = List.of();
     lastAction = "none";
     lastPlayerPosition = null;
+    packSyncRequested = false;
     dev.qb2.ui.overlay.CubeyInventoryOverlay.reset();
   }
 
@@ -341,9 +343,18 @@ public final class ClientController {
     Point currentPosition = dev.qb2.perception.world.WorldSensor.point(player.position());
     if (lastPlayerPosition != null && lastPlayerPosition.distance(currentPosition) > 96) {
       var prevChat = session.chat;
+      var prevMachines = session.machineMemory;
       reset();
       session = new CompanionSession();
       session.chat.copyFrom(prevChat);
+      session.machineMemory.copyFrom(prevMachines);
+    }
+    if (!packSyncRequested
+        && mc.getConnection() != null
+        && mc.getConnection().hasChannel(dev.qb2.network.CubeyNetwork.C2SPackActionPayload.TYPE)) {
+      packSyncRequested = true;
+      net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+          new dev.qb2.network.CubeyNetwork.C2SPackActionPayload("request_sync", 0));
     }
     lastPlayerPosition = currentPosition;
     var s = configuration.settings();
