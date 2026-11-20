@@ -4,7 +4,7 @@ license="MIT"
 clientSideOnly=true
 [[mods]]
 modId="qb2"
-version="0.9.1"
+version="0.9.2"
 displayName="QB2 Companion"
 logoFile="assets/qb2/icon.png"
 authors="QB2 Team"

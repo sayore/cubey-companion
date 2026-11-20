@@ -13,9 +13,27 @@ public record ToolSnapshot(
     String areaScan,
     String inventorySummary,
     String knowledgeScope,
-    Point playerPosition) {
+    Point playerPosition,
+    List<String> localCatalogFacts) {
   public static final ToolSnapshot EMPTY =
-      new ToolSnapshot(Map.of(), Map.of(), "", "", "", null);
+      new ToolSnapshot(Map.of(), Map.of(), "", "", "", null, List.of());
+
+  public ToolSnapshot(
+      Map<String, String> aliasToFullKey,
+      Map<String, String> detailsByAlias,
+      String areaScan,
+      String inventorySummary,
+      String knowledgeScope,
+      Point playerPosition) {
+    this(
+        aliasToFullKey,
+        detailsByAlias,
+        areaScan,
+        inventorySummary,
+        knowledgeScope,
+        playerPosition,
+        List.of());
+  }
 
   public String resolveTarget(String rawTarget) {
     if (rawTarget == null || rawTarget.isBlank()) return "";

@@ -12,6 +12,100 @@ import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
 
 public final class SettingsScreen extends Screen {
+  private static final List<String> TAB_AI =
+      List.of(
+          "apiKey",
+          "nerveKey",
+          "fallbackApiKey",
+          "provider",
+          "endpoint",
+          "model",
+          "modelChain",
+          "ambientModel",
+          "fallbackProvider",
+          "fallbackEndpoint",
+          "fallbackModel",
+          "nerveEndpoint");
+  private static final List<String> TAB_BEHAVIOR =
+      List.of(
+          "autonomous",
+          "smoothFollow",
+          "paused",
+          "serverChat",
+          "exploreRadius",
+          "perceptionRadius",
+          "inferenceSeconds",
+          "speechSeconds",
+          "tokenBudget",
+          "outputTokens",
+          "timeoutSeconds",
+          "memoryTopK",
+          "triggers",
+          "style");
+  private static final List<String> TAB_VISUALS =
+      List.of(
+          "thoughts",
+          "speech",
+          "sounds",
+          "particles",
+          "showTargetBeam",
+          "glow",
+          "bubbleOpacity",
+          "fieldOfView",
+          "debug");
+
+  private record SliderSpec(double min, double max, boolean integer, String suffix) {}
+
+  private static final Map<String, SliderSpec> SLIDERS =
+      Map.of(
+          "glow", new SliderSpec(0.0, 1.0, false, ""),
+          "bubbleOpacity", new SliderSpec(0.1, 1.0, false, ""),
+          "exploreRadius", new SliderSpec(2.0, 20.0, false, " blk"),
+          "perceptionRadius", new SliderSpec(3.0, 24.0, false, " blk"),
+          "fieldOfView", new SliderSpec(30.0, 180.0, true, "°"),
+          "inferenceSeconds", new SliderSpec(5.0, 120.0, true, "s"),
+          "speechSeconds", new SliderSpec(10.0, 180.0, true, "s"),
+          "tokenBudget", new SliderSpec(800.0, 4000.0, true, " tok"),
+          "outputTokens", new SliderSpec(150.0, 1200.0, true, " tok"));
+
+  private static final Map<String, String> FRIENDLY_LABELS =
+      Map.ofEntries(
+          Map.entry("apiKey", "API Key (Masked)"),
+          Map.entry("nerveKey", "NERVE Token (Masked)"),
+          Map.entry("fallbackApiKey", "Fallback Key (Masked)"),
+          Map.entry("provider", "Provider (google/openai)"),
+          Map.entry("endpoint", "API Endpoint"),
+          Map.entry("model", "Primary Model"),
+          Map.entry("modelChain", "Failover Model Chain"),
+          Map.entry("ambientModel", "Ambient / Background Model"),
+          Map.entry("fallbackProvider", "Fallback Provider"),
+          Map.entry("fallbackEndpoint", "Fallback Endpoint"),
+          Map.entry("fallbackModel", "Fallback Model (e.g. gemma3:1b)"),
+          Map.entry("nerveEndpoint", "NERVE Bridge URL"),
+          Map.entry("autonomous", "Autonomous Curiosity"),
+          Map.entry("smoothFollow", "Smooth Trail Follow"),
+          Map.entry("paused", "Pause Companion"),
+          Map.entry("serverChat", "Send to Public Server Chat"),
+          Map.entry("exploreRadius", "Explore Radius"),
+          Map.entry("perceptionRadius", "Vision Radius"),
+          Map.entry("inferenceSeconds", "Background Think Interval"),
+          Map.entry("speechSeconds", "Spontaneous Speech Cooldown"),
+          Map.entry("tokenBudget", "Input Token Budget"),
+          Map.entry("outputTokens", "Max Output Tokens"),
+          Map.entry("timeoutSeconds", "HTTP Timeout (s)"),
+          Map.entry("memoryTopK", "Memory Top-K Hits"),
+          Map.entry("triggers", "Chat Wake Triggers"),
+          Map.entry("style", "Personality / Style"),
+          Map.entry("thoughts", "Show Thought Bubbles"),
+          Map.entry("speech", "Show Speech Bubbles"),
+          Map.entry("sounds", "Audio Cues"),
+          Map.entry("particles", "Hover Particles"),
+          Map.entry("showTargetBeam", "Target Focus Beam"),
+          Map.entry("glow", "Sensor & Edge Glow"),
+          Map.entry("bubbleOpacity", "Bubble Background Opacity"),
+          Map.entry("fieldOfView", "Sensor Field of View"),
+          Map.entry("debug", "Debug HUD Overlay"));
+
   private final Screen parent;
   private final ClientController controller;
   private final Settings draft;
@@ -19,10 +113,10 @@ public final class SettingsScreen extends Screen {
   private final Map<String, String> values = new HashMap<>();
   private final Map<String, EditBox> edits = new HashMap<>();
   private final List<String> labels = new ArrayList<>();
+  private int tab; // 0 = AI, 1 = Behavior, 2 = Visuals, 3 = Inspector
   private int page;
   private int rows;
   private int presetIndex;
-  private boolean inspectorMode;
   private String searchQuery = "";
   private List<Episode> inspectorResults = List.of();
   private String message = "Changes apply after Save. Keys are masked and stored separately.";
@@ -49,45 +143,106 @@ public final class SettingsScreen extends Screen {
   protected void init() {
     edits.clear();
     labels.clear();
-    int left = width / 2 - 145;
-    if (inspectorMode) {
+    int left = width / 2 - 150;
+
+    // Top 4 Category Tabs
+    String[] tabTitles = {
+      "screen.qb2.tab.api", "screen.qb2.tab.behavior", "Visuals & Audio", "screen.qb2.tab.inspector"
+    };
+    for (int t = 0; t < 4; t++) {
+      int tabIdx = t;
+      Component label =
+          t == 2 ? Component.literal("Visuals & Audio") : Component.translatable(tabTitles[t]);
+      var btn =
+          Button.builder(
+                  label,
+                  b -> {
+                    tab = tabIdx;
+                    page = 0;
+                    if (tab == 3) runMemorySearch();
+                    rebuildWidgets();
+                  })
+              .bounds(left + t * 76, 26, 73, 18)
+              .build();
+      btn.active = (tab != tabIdx);
+      addRenderableWidget(btn);
+    }
+
+    if (tab == 3) {
       initInspector(left);
       return;
     }
-    var names = new ArrayList<>(List.of("apiKey", "nerveKey", "fallbackApiKey"));
-    fields.forEach(f -> names.add(f.getName()));
-    rows = Math.clamp((height - 145) / 26, 2, 8);
-    page = Math.min(page, (names.size() - 1) / rows);
-    int y = 55;
+
+    List<String> names =
+        switch (tab) {
+          case 0 -> TAB_AI;
+          case 1 -> TAB_BEHAVIOR;
+          default -> TAB_VISUALS;
+        };
+
+    rows = Math.clamp((height - 145) / 24, 2, 7);
+    int pages = Math.max(1, (names.size() + rows - 1) / rows);
+    page = Math.min(page, pages - 1);
+    int y = 52;
     for (int i = page * rows; i < Math.min(names.size(), page * rows + rows); i++) {
       String name = names.get(i);
-      labels.add(name);
-      boolean bool = values.get(name).equals("true") || values.get(name).equals("false");
+      labels.add(FRIENDLY_LABELS.getOrDefault(name, name));
+      String current = values.getOrDefault(name, "");
+      boolean bool = current.equals("true") || current.equals("false");
       if (bool) {
         addRenderableWidget(
             Button.builder(
-                    Component.literal(values.get(name)),
+                    Component.literal(Boolean.parseBoolean(current) ? "ON" : "OFF"),
                     b -> {
-                      values.put(name, Boolean.toString(!Boolean.parseBoolean(values.get(name))));
-                      b.setMessage(Component.literal(values.get(name)));
+                      boolean next = !Boolean.parseBoolean(values.get(name));
+                      values.put(name, Boolean.toString(next));
+                      b.setMessage(Component.literal(next ? "ON" : "OFF"));
                     })
-                .bounds(left + 125, y, 165, 20)
+                .bounds(left + 135, y, 165, 20)
                 .build());
+      } else if (SLIDERS.containsKey(name)) {
+        SliderSpec spec = SLIDERS.get(name);
+        double parsedVal;
+        try {
+          parsedVal = Double.parseDouble(current);
+        } catch (NumberFormatException e) {
+          parsedVal = spec.min;
+        }
+        double norm = Math.clamp((parsedVal - spec.min) / (spec.max - spec.min), 0.0, 1.0);
+        addRenderableWidget(
+            new AbstractSliderButton(
+                left + 135, y, 165, 20, Component.literal(formatSlider(parsedVal, spec)), norm) {
+              @Override
+              protected void updateMessage() {
+                double v = spec.min + this.value * (spec.max - spec.min);
+                setMessage(Component.literal(formatSlider(v, spec)));
+              }
+
+              @Override
+              protected void applyValue() {
+                double v = spec.min + this.value * (spec.max - spec.min);
+                values.put(
+                    name,
+                    spec.integer
+                        ? Integer.toString((int) Math.round(v))
+                        : String.format(Locale.ROOT, "%.2f", v));
+              }
+            });
       } else {
         EditBox edit =
             name.equals("apiKey") || name.equals("nerveKey") || name.equals("fallbackApiKey")
                 ? new dev.qb2.ui.widgets.SecretBox(
-                    font, left + 125, y, 165, 20, Component.literal(name))
-                : new EditBox(font, left + 125, y, 165, 20, Component.literal(name));
+                    font, left + 135, y, 165, 20, Component.literal(name))
+                : new EditBox(font, left + 135, y, 165, 20, Component.literal(name));
         edit.setMaxLength(2048);
-        edit.setValue(values.get(name));
+        edit.setValue(current);
         edit.setResponder(value -> values.put(name, value));
         edits.put(name, edit);
         addRenderableWidget(edit);
       }
-      y += 26;
+      y += 24;
     }
-    int pages = (names.size() + rows - 1) / rows;
+
     addRenderableWidget(
         Button.builder(
                 Component.literal("←"),
@@ -95,7 +250,16 @@ public final class SettingsScreen extends Screen {
                   page = Math.floorMod(page - 1, pages);
                   rebuildWidgets();
                 })
-            .bounds(left, height - 64, 28, 20)
+            .bounds(left, height - 62, 30, 20)
+            .build());
+    addRenderableWidget(
+        Button.builder(
+                Component.literal((page + 1) + "/" + pages),
+                b -> {
+                  page = (page + 1) % pages;
+                  rebuildWidgets();
+                })
+            .bounds(left + 33, height - 62, 36, 20)
             .build());
     addRenderableWidget(
         Button.builder(
@@ -104,23 +268,11 @@ public final class SettingsScreen extends Screen {
                   page = (page + 1) % pages;
                   rebuildWidgets();
                 })
-            .bounds(left + 31, height - 64, 28, 20)
+            .bounds(left + 72, height - 62, 30, 20)
             .build());
     addRenderableWidget(
-        Button.builder(
-                Component.literal("Preset"),
-                b -> applyNextPreset())
-            .bounds(left + 62, height - 64, 54, 20)
-            .build());
-    addRenderableWidget(
-        Button.builder(
-                Component.translatable("screen.qb2.tab.inspector"),
-                b -> {
-                  inspectorMode = true;
-                  runMemorySearch();
-                  rebuildWidgets();
-                })
-            .bounds(left + 119, height - 64, 68, 20)
+        Button.builder(Component.literal("Preset"), b -> applyNextPreset())
+            .bounds(left + 106, height - 62, 62, 20)
             .build());
     addRenderableWidget(
         Button.builder(
@@ -132,34 +284,41 @@ public final class SettingsScreen extends Screen {
                           ? "Connection test queued; see the debug overlay in your world."
                           : controller.error;
                 })
-            .bounds(left + 190, height - 64, 100, 20)
+            .bounds(left + 172, height - 62, 128, 20)
             .build());
     addRenderableWidget(
         Button.builder(Component.translatable("screen.qb2.save"), b -> save())
-            .bounds(left, height - 38, 142, 20)
+            .bounds(left, height - 38, 147, 20)
             .build());
     addRenderableWidget(
         Button.builder(Component.translatable("screen.qb2.close"), b -> onClose())
-            .bounds(left + 148, height - 38, 142, 20)
+            .bounds(left + 153, height - 38, 147, 20)
             .build());
   }
 
+  private static String formatSlider(double v, SliderSpec spec) {
+    return (spec.integer
+            ? Integer.toString((int) Math.round(v))
+            : String.format(Locale.ROOT, "%.2f", v))
+        + spec.suffix;
+  }
+
   private void initInspector(int left) {
-    EditBox queryBox = new EditBox(font, left, 48, 210, 20, Component.literal("query"));
+    EditBox queryBox = new EditBox(font, left, 50, 220, 20, Component.literal("query"));
     queryBox.setMaxLength(200);
     queryBox.setValue(searchQuery);
     queryBox.setResponder(v -> searchQuery = v);
     addRenderableWidget(queryBox);
     addRenderableWidget(
         Button.builder(Component.translatable("screen.qb2.search"), b -> runMemorySearch())
-            .bounds(left + 216, 48, 74, 20)
+            .bounds(left + 226, 50, 74, 20)
             .build());
     int maxVisible = Math.clamp((height - 140) / 24, 2, 7);
-    int y = 76;
+    int y = 78;
     for (int i = 0; i < Math.min(inspectorResults.size(), maxVisible); i++) {
       Episode ep = inspectorResults.get(i);
       String summary = "[" + ep.kind() + "] " + ep.text();
-      labels.add(font.plainSubstrByWidth(summary, 240));
+      labels.add(font.plainSubstrByWidth(summary, 245));
       addRenderableWidget(
           Button.builder(
                   Component.translatable("screen.qb2.delete"),
@@ -172,7 +331,7 @@ public final class SettingsScreen extends Screen {
                           runMemorySearch();
                         });
                   })
-              .bounds(left + 246, y, 44, 20)
+              .bounds(left + 256, y, 44, 20)
               .build());
       y += 24;
     }
@@ -180,14 +339,14 @@ public final class SettingsScreen extends Screen {
         Button.builder(
                 Component.literal("← Settings"),
                 b -> {
-                  inspectorMode = false;
+                  tab = 0;
                   rebuildWidgets();
                 })
-            .bounds(left, height - 38, 142, 20)
+            .bounds(left, height - 38, 147, 20)
             .build());
     addRenderableWidget(
         Button.builder(Component.translatable("screen.qb2.close"), b -> onClose())
-            .bounds(left + 148, height - 38, 142, 20)
+            .bounds(left + 153, height - 38, 147, 20)
             .build());
   }
 
@@ -234,8 +393,9 @@ public final class SettingsScreen extends Screen {
         searchQuery,
         results -> {
           inspectorResults = results;
-          message = results.isEmpty() ? "No memories found." : "Found " + results.size() + " memories.";
-          if (inspectorMode) rebuildWidgets();
+          message =
+              results.isEmpty() ? "No memories found." : "Found " + results.size() + " memories.";
+          if (tab == 3) rebuildWidgets();
         });
   }
 
@@ -244,7 +404,7 @@ public final class SettingsScreen extends Screen {
       for (var f : fields) {
         String value = values.get(f.getName());
         if (f.getType() == boolean.class) f.setBoolean(draft, Boolean.parseBoolean(value));
-        else if (f.getType() == int.class) f.setInt(draft, Integer.parseInt(value));
+        else if (f.getType() == int.class) f.setInt(draft, (int) Math.round(Double.parseDouble(value)));
         else if (f.getType() == double.class) f.setDouble(draft, Double.parseDouble(value));
         else f.set(draft, value);
       }
@@ -262,23 +422,17 @@ public final class SettingsScreen extends Screen {
   @Override
   public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
     super.render(graphics, mouseX, mouseY, delta);
-    graphics.drawCenteredString(font, title, width / 2, 15, 0xBBEEFF);
-    String subtitle =
-        inspectorMode
-            ? "Memory Inspector · current world"
-            : "Page " + (page + 1) + " · K opens settings";
-    graphics.drawCenteredString(font, Component.literal(subtitle), width / 2, 32, 0xBBBBBB);
-    int y = inspectorMode ? 82 : 61;
-    int step = inspectorMode ? 24 : 26;
+    graphics.drawCenteredString(font, title, width / 2, 10, 0xBBEEFF);
+    int y = tab == 3 ? 84 : 58;
     for (String label : labels) {
-      graphics.drawString(font, label, width / 2 - 145, y, 0xFFFFFF);
-      y += step;
+      graphics.drawString(font, label, width / 2 - 150, y, 0xFFFFFF);
+      y += 24;
     }
     graphics.drawCenteredString(
         font,
         Component.literal(font.plainSubstrByWidth(message, width - 20)),
         width / 2,
-        height - 80,
+        height - 78,
         0xBBBBBB);
   }
 

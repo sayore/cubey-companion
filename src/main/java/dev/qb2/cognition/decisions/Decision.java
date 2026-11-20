@@ -77,6 +77,49 @@ public record Decision(
         plan);
   }
 
+  /**
+   * Tolerant fallback parser for small local models (e.g. 1B VRAM models) that occasionally wrap
+   * JSON in conversational prose, invent unknown action names, or omit targets.
+   */
+  public static Decision parseTolerant(
+      String text, Set<String> visibleTargets, Map<String, String> aliasToFullKey) {
+    try {
+      return parse(text, visibleTargets, aliasToFullKey);
+    } catch (RuntimeException strictError) {
+      String trimmed = text == null ? "" : text.trim();
+      int firstBrace = trimmed.indexOf('{');
+      int lastBrace = trimmed.lastIndexOf('}');
+      if (firstBrace < 0 || lastBrace <= firstBrace) throw strictError;
+      String candidate = trimmed.substring(firstBrace, lastBrace + 1);
+      JsonObject o = JsonParser.parseString(candidate).getAsJsonObject();
+      var toolCalls = parseToolCalls(o);
+      String action = safeString(o, "action", 30);
+      if (!ACTIONS.contains(action)) action = "observe";
+      String target = resolve(safeString(o, "target", 200), aliasToFullKey);
+      if (!TARGET_ACTIONS.contains(action)) {
+        target = "";
+      } else if (!visibleTargets.contains(target)) {
+        action = "observe";
+        target = "";
+      }
+      var plan = parsePlan(o, visibleTargets, aliasToFullKey);
+      return new Decision(
+          action,
+          target,
+          safeString(o, "thought", 360),
+          safeString(o, "speech", 900),
+          safeString(o, "memory", 600),
+          toolCalls,
+          plan);
+    }
+  }
+
+  private static String safeString(JsonObject o, String key, int max) {
+    if (!o.has(key) || o.get(key).isJsonNull() || !o.get(key).isJsonPrimitive()) return "";
+    String s = o.get(key).getAsString().replace('§', ' ').replaceAll("[\\p{Cntrl}&&[^\\n]]", "");
+    return s.length() > max ? s.substring(0, max) : s;
+  }
+
   private static String resolve(String raw, Map<String, String> aliases) {
     if (raw == null || raw.isBlank()) return "";
     if (aliases != null && aliases.containsKey(raw)) return aliases.get(raw);

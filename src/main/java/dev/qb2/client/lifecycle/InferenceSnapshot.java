@@ -195,6 +195,8 @@ public record InferenceSnapshot(
             .limit(18)
             .map(e -> e.getValue() > 1 ? e.getValue() + "x " + e.getKey() : e.getKey())
             .collect(Collectors.joining(", "));
+    var localCatalogFacts =
+        dev.qb2.perception.knowledge.CatalogReader.lookupRelevant(mc, keywords, 10);
     var toolSnapshot =
         new ToolSnapshot(
             Map.copyOf(aliasToFullKey),
@@ -202,7 +204,8 @@ public record InferenceSnapshot(
             areaScan,
             compactInventory,
             knowledgeScope,
-            playerPosition);
+            playerPosition,
+            localCatalogFacts);
     var events = new ArrayList<Episode>();
     if (!text.isBlank())
       events.add(

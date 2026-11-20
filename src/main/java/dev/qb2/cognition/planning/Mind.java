@@ -251,8 +251,11 @@ public final class Mind implements AutoCloseable {
                     throw e;
                   } catch (Exception e) {
                     knowledgeFuture.cancel(true);
-                    sections.put("knowledge", List.of());
+                    sections.put("knowledge", fallbackKnowledgeList(job.tools()));
                   }
+                } else if (job.tools() != null && !job.tools().localCatalogFacts().isEmpty()) {
+                  knowledgeHits = job.tools().localCatalogFacts().size();
+                  sections.put("knowledge", fallbackKnowledgeList(job.tools()));
                 }
                 boolean ambient = !"direct address".equals(job.reason());
                 int effectiveBudget =
@@ -271,7 +274,7 @@ public final class Mind implements AutoCloseable {
                 resetBackoff();
                 if (Thread.currentThread().isInterrupted() || epoch != job.epoch()) return;
                 Decision parsed =
-                    Decision.parse(response, job.targets(), toolSnapshot.aliasToFullKey());
+                    Decision.parseTolerant(response, job.targets(), toolSnapshot.aliasToFullKey());
 
                 // Bounded read-only tool-calling loop (max 2 tool rounds).
                 for (int round = 0; round < 2 && !parsed.toolCalls().isEmpty(); round++) {
@@ -282,7 +285,8 @@ public final class Mind implements AutoCloseable {
                   response = model.complete(context);
                   activeModel = model.lastUsedModel();
                   if (Thread.currentThread().isInterrupted() || epoch != job.epoch()) return;
-                  parsed = Decision.parse(response, job.targets(), toolSnapshot.aliasToFullKey());
+                  parsed =
+                      Decision.parseTolerant(response, job.targets(), toolSnapshot.aliasToFullKey());
                 }
 
                 Object recent = job.context().get("recentThoughts");
@@ -377,6 +381,24 @@ public final class Mind implements AutoCloseable {
                 if (outbox != null) pending = outbox.size();
               }
             });
+  }
+
+  private static List<Map<String, Object>> fallbackKnowledgeList(ToolSnapshot tools) {
+    if (tools == null || tools.localCatalogFacts().isEmpty()) return List.of();
+    return tools.localCatalogFacts().stream()
+        .limit(4)
+        .map(
+            t ->
+                Map.<String, Object>of(
+                    "kind",
+                    "knowledge_recipe",
+                    "text",
+                    t,
+                    "partial",
+                    t.contains("; PARTIAL:"),
+                    "source",
+                    "client_in_memory_recipe"))
+        .toList();
   }
 
   private static dev.qb2.companion.movement.Point extractPlayerPos(Map<String, Object> context) {

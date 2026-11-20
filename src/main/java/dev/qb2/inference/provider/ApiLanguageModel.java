@@ -106,18 +106,19 @@ public final class ApiLanguageModel implements LanguageModel {
               generation);
       url = base + "/models/" + model.replaceFirst("^models/", "") + ":generateContent";
     } else {
-      body =
-          Map.of(
-              "model",
-              model,
-              "messages",
-              List.of(
-                  Map.of("role", "system", "content", ContextBuilder.INSTRUCTION),
-                  Map.of("role", "user", "content", context)),
-              "max_tokens",
-              settings.outputTokens,
-              "temperature",
-              0.65);
+      var req = new LinkedHashMap<String, Object>();
+      req.put("model", model);
+      req.put(
+          "messages",
+          List.of(
+              Map.of("role", "system", "content", ContextBuilder.INSTRUCTION),
+              Map.of("role", "user", "content", context)));
+      req.put("max_tokens", settings.outputTokens);
+      req.put("temperature", 0.65);
+      if (base.contains("127.0.0.1:11434") || base.contains("localhost:11434")) {
+        req.put("response_format", Map.of("type", "json_object"));
+      }
+      body = req;
       url = base + "/chat/completions";
     }
     var result =

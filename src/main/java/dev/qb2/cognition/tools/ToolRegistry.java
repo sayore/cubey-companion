@@ -77,21 +77,35 @@ public final class ToolRegistry {
         }
       }
       case "lookup_recipe" -> {
-        if (memory == null
-            || snap.knowledgeScope() == null
-            || !snap.knowledgeScope().matches("[a-f0-9]{64}"))
-          yield "Catalog not ready.";
-        try {
-          var words = Keywords.extract(arg);
-          if (words.isEmpty()) yield "Provide an item or block name.";
-          var facts = memory.search(snap.knowledgeScope(), words, 4);
-          if (facts.isEmpty()) yield "No synced recipe/registry entry found for '" + arg + "'.";
-          yield facts.stream()
-              .map(f -> "[" + f.kind() + "] " + f.text())
-              .collect(Collectors.joining(" | "));
-        } catch (Exception e) {
-          yield "Catalog lookup failed.";
+        var words = Keywords.extract(arg);
+        if (words.isEmpty()) yield "Provide an item or block name.";
+        if (memory != null
+            && snap.knowledgeScope() != null
+            && snap.knowledgeScope().matches("[a-f0-9]{64}")) {
+          try {
+            var facts = memory.search(snap.knowledgeScope(), words, 4);
+            if (!facts.isEmpty()) {
+              yield facts.stream()
+                  .map(f -> "[" + f.kind() + "] " + f.text())
+                  .collect(Collectors.joining(" | "));
+            }
+          } catch (Exception ignored) {
+            /* Fall back to in-memory client recipe facts below. */
+          }
         }
+        String lower = arg.toLowerCase(Locale.ROOT);
+        var localMatches =
+            snap.localCatalogFacts().stream()
+                .filter(
+                    f ->
+                        f.toLowerCase(Locale.ROOT).contains(lower)
+                            || words.stream().anyMatch(w -> f.toLowerCase(Locale.ROOT).contains(w)))
+                .limit(4)
+                .toList();
+        if (!localMatches.isEmpty()) yield String.join(" | ", localMatches);
+        if (!snap.localCatalogFacts().isEmpty())
+          yield String.join(" | ", snap.localCatalogFacts().stream().limit(3).toList());
+        yield "No synced recipe/registry entry found for '" + arg + "'.";
       }
       default -> "Unknown tool: " + call.tool();
     };

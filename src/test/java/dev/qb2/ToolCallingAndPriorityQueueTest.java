@@ -67,6 +67,48 @@ final class ToolCallingAndPriorityQueueTest {
   }
 
   @Test
+  void tolerantParserHandlesSmallLocalModelProseAndStandaloneRecipeLookup() {
+    String noisy1bOutput =
+        """
+        Sure! Here is my JSON response for you:
+        {"action":"chat_with_player","target":"unknown_block","thought":"Thinking locally","speech":"Hier ist die Antwort vom 1B Modell!","extra_key":123}
+        Hope that helps!
+        """;
+    var d = Decision.parseTolerant(noisy1bOutput, Set.of(), Map.of());
+    assertEquals("observe", d.action());
+    assertEquals("", d.target());
+    assertEquals("Hier ist die Antwort vom 1B Modell!", d.speech());
+
+    var snap =
+        new ToolSnapshot(
+            Map.of(),
+            Map.of(),
+            "",
+            "",
+            "",
+            null,
+            List.of("Server-synced recipe minecraft:iron_ingot; output=minecraft:iron_ingot x1"));
+    String recipeReply =
+        dev.qb2.cognition.tools.ToolRegistry.executeOne(
+            new dev.qb2.cognition.tools.ToolRegistry.Call("lookup_recipe", "iron_ingot"),
+            snap,
+            null,
+            "scope");
+    assertTrue(recipeReply.contains("output=minecraft:iron_ingot"));
+
+    var netherEp =
+        dev.qb2.memory.Episode.createAt(
+            "a".repeat(64),
+            "death_location",
+            List.of("death"),
+            "Died in Nether",
+            new dev.qb2.companion.movement.Point(10, 64, -5),
+            "minecraft:the_nether");
+    assertTrue(netherEp.hasPosition());
+    assertEquals("minecraft:the_nether", netherEp.dimension());
+  }
+
+  @Test
   void mindExecutesReadOnlyToolCallsAndFeedsResultsIntoSecondRound(@TempDir Path dir)
       throws Exception {
     AtomicInteger calls = new AtomicInteger();

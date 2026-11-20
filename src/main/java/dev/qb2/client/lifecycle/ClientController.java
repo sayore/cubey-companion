@@ -50,6 +50,7 @@ public final class ClientController {
   private final MemoryInspectorClient inspectorClient = new MemoryInspectorClient();
   private Point lastInteractedBlock;
   private Point lastDeathPoint;
+  private String lastDeathDimension = "";
   private boolean deathRecorded;
   private long lastDirectConvoTick = -10000;
   private String lastDirectPrompt = "";
@@ -163,6 +164,7 @@ public final class ClientController {
       if (!deathRecorded) {
         deathRecorded = true;
         lastDeathPoint = currentPosition;
+        lastDeathDimension = level.dimension().location().toString();
         int dx = (int) Math.floor(currentPosition.x());
         int dy = (int) Math.floor(currentPosition.y());
         int dz = (int) Math.floor(currentPosition.z());
@@ -171,8 +173,9 @@ public final class ClientController {
                 scope,
                 "death_location",
                 List.of("death", "grave", "tod", "gestorben", "items"),
-                "Player died at " + dx + "," + dy + "," + dz,
-                currentPosition));
+                "Player died in " + lastDeathDimension + " at " + dx + "," + dy + "," + dz,
+                currentPosition,
+                lastDeathDimension));
       }
     } else if (player.getHealth() > 1.0f) {
       deathRecorded = false;
@@ -217,7 +220,8 @@ public final class ClientController {
             lastInteractedBlock != null
                 ? lastInteractedBlock
                 : dev.qb2.perception.world.WorldSensor.point(player.position());
-        containerMemory.record(scope, pos, inventory).ifPresent(this::queueBackgroundEpisode);
+        String dim = level.dimension().location().toString();
+        containerMemory.record(scope, pos, inventory, dim).ifPresent(this::queueBackgroundEpisode);
       }
       if (lastInventory != null && !lastInventory.equals(inventory)) {
         String summary = "Inventory/menu changed: " + inventory;
@@ -606,8 +610,25 @@ public final class ClientController {
   }
 
   public void guideToDeath() {
-    if (session == null) return;
+    if (session == null || mc.level == null) return;
+    String currentDim = mc.level.dimension().location().toString();
     if (lastDeathPoint != null) {
+      if (!lastDeathDimension.isBlank() && !lastDeathDimension.equals(currentDim)) {
+        mc.gui
+            .getChat()
+            .addMessage(
+                Component.literal(
+                    "[QB2] Your death spot is in dimension "
+                        + lastDeathDimension
+                        + " at ("
+                        + (int) Math.floor(lastDeathPoint.x())
+                        + ", "
+                        + (int) Math.floor(lastDeathPoint.y())
+                        + ", "
+                        + (int) Math.floor(lastDeathPoint.z())
+                        + "). Enter that dimension first!"));
+        return;
+      }
       session.startGuiding(lastDeathPoint, "Death location");
       mc.gui
           .getChat()
@@ -626,8 +647,17 @@ public final class ClientController {
         "death grave gestorben",
         results -> {
           var hit = results.stream().filter(Episode::hasPosition).findFirst();
-          if (hit.isPresent() && session != null) {
+          if (hit.isPresent() && session != null && mc.level != null) {
             var ep = hit.get();
+            String dim = mc.level.dimension().location().toString();
+            if (ep.dimension() != null && !ep.dimension().isBlank() && !ep.dimension().equals(dim)) {
+              mc.gui
+                  .getChat()
+                  .addMessage(
+                      Component.literal(
+                          "[QB2] Your death spot is in " + ep.dimension() + ": " + ep.text()));
+              return;
+            }
             session.startGuiding(new Point(ep.x(), ep.y(), ep.z()), "Death location");
             mc.gui.getChat().addMessage(Component.literal("[QB2] Guiding you to your death spot: " + ep.text()));
           } else {
@@ -642,8 +672,17 @@ public final class ClientController {
         query,
         results -> {
           var hit = results.stream().filter(Episode::hasPosition).findFirst();
-          if (hit.isPresent() && session != null) {
+          if (hit.isPresent() && session != null && mc.level != null) {
             var ep = hit.get();
+            String dim = mc.level.dimension().location().toString();
+            if (ep.dimension() != null && !ep.dimension().isBlank() && !ep.dimension().equals(dim)) {
+              mc.gui
+                  .getChat()
+                  .addMessage(
+                      Component.literal(
+                          "[QB2] Found in dimension " + ep.dimension() + ": " + ep.text()));
+              return;
+            }
             session.startGuiding(new Point(ep.x(), ep.y(), ep.z()), query);
             mc.gui
                 .getChat()
@@ -754,8 +793,10 @@ public final class ClientController {
       lastDirectConvoTick = session.tick;
       String lowerPrompt = lastDirectPrompt.toLowerCase(Locale.ROOT);
       if (lowerPrompt.matches("(?s).*(wo |where |find|kiste|chest|truhe|lager|tod|died|grave|grab).*")) {
+        String currentDim = level == null ? "" : level.dimension().location().toString();
         recalled.stream()
             .filter(Episode::hasPosition)
+            .filter(ep -> ep.dimension() == null || ep.dimension().isBlank() || ep.dimension().equals(currentDim))
             .findFirst()
             .ifPresent(
                 ep ->

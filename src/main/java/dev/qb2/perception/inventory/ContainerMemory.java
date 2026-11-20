@@ -15,6 +15,11 @@ public final class ContainerMemory {
   private final LinkedHashMap<String, String> lastSignature = new LinkedHashMap<>();
 
   public Optional<Episode> record(String scope, Point containerPos, InventorySensor.View view) {
+    return record(scope, containerPos, view, null);
+  }
+
+  public Optional<Episode> record(
+      String scope, Point containerPos, InventorySensor.View view, String dimension) {
     if (scope == null || scope.isBlank() || containerPos == null || view == null)
       return Optional.empty();
     if (view.container().isEmpty()) return Optional.empty();
@@ -74,7 +79,8 @@ public final class ContainerMemory {
             "container_memory",
             kw.stream().filter(w -> w.length() <= 200).limit(1000).toList(),
             summary.toString(),
-            containerPos));
+            containerPos,
+            dimension));
   }
 
   public void reset() {

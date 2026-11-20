@@ -13,10 +13,24 @@ public record Episode(
     String createdAt,
     Double x,
     Double y,
-    Double z) {
+    Double z,
+    String dimension) {
   public Episode(
       String id, String scope, String kind, List<String> keywords, String text, String createdAt) {
-    this(id, scope, kind, keywords, text, createdAt, null, null, null);
+    this(id, scope, kind, keywords, text, createdAt, null, null, null, null);
+  }
+
+  public Episode(
+      String id,
+      String scope,
+      String kind,
+      List<String> keywords,
+      String text,
+      String createdAt,
+      Double x,
+      Double y,
+      Double z) {
+    this(id, scope, kind, keywords, text, createdAt, x, y, z, null);
   }
 
   public boolean hasPosition() {
@@ -24,11 +38,21 @@ public record Episode(
   }
 
   public static Episode create(String scope, String kind, List<String> keywords, String text) {
-    return createAt(scope, kind, keywords, text, null);
+    return createAt(scope, kind, keywords, text, null, null);
   }
 
   public static Episode createAt(
       String scope, String kind, List<String> keywords, String text, Point pos) {
+    return createAt(scope, kind, keywords, text, pos, null);
+  }
+
+  public static Episode createAt(
+      String scope,
+      String kind,
+      List<String> keywords,
+      String text,
+      Point pos,
+      String dimension) {
     return new Episode(
         UUID.nameUUIDFromBytes(
                 (scope + "|" + kind + "|" + text + "|" + (Instant.now().getEpochSecond() / 300))
@@ -41,6 +65,7 @@ public record Episode(
         Instant.now().toString(),
         pos == null ? null : pos.x(),
         pos == null ? null : pos.y(),
-        pos == null ? null : pos.z());
+        pos == null ? null : pos.z(),
+        dimension);
   }
 }
