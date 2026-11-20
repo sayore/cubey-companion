@@ -38,6 +38,7 @@ public final class CompanionSession {
   public int errorTintTicks;
   public boolean perched;
   public Point perchSpot;
+  public Point perchLook;
   private long perchedSinceTick;
   private Point lastTrackedPlayerPos;
   private float lastTrackedYaw, lastTrackedPitch;
@@ -72,10 +73,17 @@ public final class CompanionSession {
     attention.holdUntil(actionUntil);
   }
 
+  public record PerchPlacement(Point position, Point lookAt) {}
+
   public void perchAt(Point spot) {
-    if (spot == null) return;
+    perchAt(new PerchPlacement(spot, null));
+  }
+
+  public void perchAt(PerchPlacement placement) {
+    if (placement == null || placement.position() == null) return;
     perched = true;
-    perchSpot = spot;
+    perchSpot = placement.position();
+    perchLook = placement.lookAt();
     perchedSinceTick = tick;
     action = "rest";
     actionUntil = tick + 2400;
@@ -85,31 +93,92 @@ public final class CompanionSession {
     if (!perched) return;
     perched = false;
     perchSpot = null;
+    perchLook = null;
     if ("rest".equals(action)) action = "observe";
   }
 
-  public static Point findPerchSpot(Minecraft mc, Point near) {
+  /**
+   * Prefers elevated block ledges/edges (sitting near the edge looking into the room) and cozy
+   * wall alcoves/holes over flat floor centers.
+   */
+  public static PerchPlacement findPerchSpot(Minecraft mc, Point near) {
     if (mc == null || mc.level == null || near == null) return null;
     var origin = net.minecraft.core.BlockPos.containing(near.x(), near.y(), near.z());
-    Point best = null;
-    double bestDist = Double.POSITIVE_INFINITY;
+    var horizontals =
+        new net.minecraft.core.Direction[] {
+          net.minecraft.core.Direction.NORTH,
+          net.minecraft.core.Direction.SOUTH,
+          net.minecraft.core.Direction.EAST,
+          net.minecraft.core.Direction.WEST
+        };
+    PerchPlacement best = null;
+    double bestScore = Double.NEGATIVE_INFINITY;
     for (int dx = -4; dx <= 4; dx++) {
-      for (int dy = -2; dy <= 2; dy++) {
+      for (int dy = -2; dy <= 3; dy++) {
         for (int dz = -4; dz <= 4; dz++) {
           var pos = origin.offset(dx, dy, dz);
           if (!mc.level.hasChunkAt(pos)) continue;
           var below = mc.level.getBlockState(pos);
-          var above = mc.level.getBlockState(pos.above());
-          if (!below.isAir()
-              && !below.getCollisionShape(mc.level, pos).isEmpty()
-              && above.isAir()) {
-            double topY = pos.getY() + below.getCollisionShape(mc.level, pos).max(net.minecraft.core.Direction.Axis.Y);
-            Point candidate = new Point(pos.getX() + 0.5, topY + 0.125, pos.getZ() + 0.5);
-            double d = candidate.distance(near);
-            if (d < bestDist) {
-              bestDist = d;
-              best = candidate;
+          var abovePos = pos.above();
+          var above = mc.level.getBlockState(abovePos);
+          if (below.isAir()
+              || below.getCollisionShape(mc.level, pos).isEmpty()
+              || !above.isAir()) continue;
+          double topY =
+              pos.getY()
+                  + below.getCollisionShape(mc.level, pos).max(net.minecraft.core.Direction.Axis.Y);
+
+          int solidWalls = 0;
+          int openDropEdges = 0;
+          double openDirX = 0, openDirZ = 0;
+          for (var dir : horizontals) {
+            var sideAbove = abovePos.relative(dir);
+            var sideBelow = pos.relative(dir);
+            boolean wallAtHead =
+                mc.level.hasChunkAt(sideAbove)
+                    && !mc.level.getBlockState(sideAbove).isAir()
+                    && !mc.level.getBlockState(sideAbove).getCollisionShape(mc.level, sideAbove).isEmpty();
+            boolean dropBelow =
+                mc.level.hasChunkAt(sideBelow) && mc.level.getBlockState(sideBelow).isAir();
+            if (wallAtHead) {
+              solidWalls++;
+            } else {
+              openDirX += dir.getStepX();
+              openDirZ += dir.getStepZ();
+              if (dropBelow) openDropEdges++;
             }
+          }
+          boolean hasCeiling =
+              mc.level.hasChunkAt(abovePos.above())
+                  && !mc.level.getBlockState(abovePos.above()).isAir();
+          boolean isAlcove = solidWalls >= 2 && solidWalls <= 3 && (openDirX != 0 || openDirZ != 0);
+          boolean isLedge = openDropEdges >= 1;
+
+          // Sit near the open edge (offset 0.28 so the 0.25 cube still sits solidly on the block).
+          double offX = 0, offZ = 0;
+          double dirLen = Math.hypot(openDirX, openDirZ);
+          if (dirLen > 0.1 && (isLedge || isAlcove)) {
+            double ux = openDirX / dirLen;
+            double uz = openDirZ / dirLen;
+            double edgeOffset = isAlcove ? 0.18 : 0.28;
+            offX = Math.clamp(ux * edgeOffset, -0.30, 0.30);
+            offZ = Math.clamp(uz * edgeOffset, -0.30, 0.30);
+          }
+          Point seat = new Point(pos.getX() + 0.5 + offX, topY + 0.125, pos.getZ() + 0.5 + offZ);
+          Point lookAt =
+              dirLen > 0.1
+                  ? seat.add(new Point((openDirX / dirLen) * 3.0, -0.15, (openDirZ / dirLen) * 3.0))
+                  : null;
+
+          double dist = seat.distance(near);
+          double score = -dist * 0.7;
+          if (isAlcove) score += 4.2 + (hasCeiling ? 1.2 : 0.0); // Cozy hole in a wall!
+          if (isLedge) score += 3.0; // Perched on an open edge overlooking the room!
+          if (dy >= 0 && dy <= 2) score += 0.8; // Slightly elevated vantage point
+
+          if (score > bestScore) {
+            bestScore = score;
+            best = new PerchPlacement(seat, lookAt);
           }
         }
       }
@@ -164,7 +233,7 @@ public final class CompanionSession {
     }
     // Auto-perch when resting or quietly hanging around the player's factory.
     if (!perched && ("rest".equals(action) || (tick > 600 && tick - lastSpeech > 800 && !thinking && tick % 200 == 0 && player.distance(motion.position()) < settings.exploreRadius))) {
-      Point spot = findPerchSpot(mc, motion.position());
+      var spot = findPerchSpot(mc, motion.position());
       if (spot != null) perchAt(spot);
     }
     if (perched && perchSpot != null) {

@@ -34,9 +34,11 @@ public final class CompanionRenderer {
     float partial = event.getPartialTick().getGameTimeDeltaPartialTick(false);
     Point position = session.motion.interpolate(partial);
     Point look =
-        session.attention.target() == null || session.bubbles.speaking(session.tick)
-            ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
-            : session.attention.target().position();
+        "Napping".equals(session.state) && session.perchLook != null
+            ? session.perchLook
+            : session.attention.target() == null || session.bubbles.speaking(session.tick)
+                ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
+                : session.attention.target().position();
     Point direction = look.subtract(position);
     float targetYaw = (float) Math.toDegrees(Math.atan2(direction.x(), direction.z()));
     double time = (session.tick + partial) * 0.05;

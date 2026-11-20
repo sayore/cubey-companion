@@ -485,7 +485,7 @@ public final class ClientController {
 
   public void sitCompanion() {
     if (session == null || mc.level == null || configuration.settings().paused) return;
-    Point spot = null;
+    CompanionSession.PerchPlacement placement = null;
     if (mc.hitResult instanceof BlockHitResult hit) {
       var pos = hit.getBlockPos();
       var below = mc.level.getBlockState(pos);
@@ -495,12 +495,22 @@ public final class ClientController {
         double topY =
             pos.getY()
                 + below.getCollisionShape(mc.level, pos).max(net.minecraft.core.Direction.Axis.Y);
-        spot = new Point(pos.getX() + 0.5, topY + 0.125, pos.getZ() + 0.5);
+        // Sit near the edge facing the player so Cubey can watch the room!
+        Point center = new Point(pos.getX() + 0.5, topY + 0.125, pos.getZ() + 0.5);
+        Point toPlayer =
+            new Point(mc.player.getX() - center.x(), 0, mc.player.getZ() - center.z());
+        Point dir = toPlayer.length() > 0.1 ? toPlayer.unit() : new Point(0, 0, 1);
+        Point edgeSeat =
+            new Point(
+                center.x() + Math.clamp(dir.x() * 0.26, -0.30, 0.30),
+                center.y(),
+                center.z() + Math.clamp(dir.z() * 0.26, -0.30, 0.30));
+        placement = new CompanionSession.PerchPlacement(edgeSeat, edgeSeat.add(dir.scale(3.0)));
       }
     }
-    if (spot == null) spot = CompanionSession.findPerchSpot(mc, session.motion.position());
-    if (spot != null) {
-      session.perchAt(spot);
+    if (placement == null) placement = CompanionSession.findPerchSpot(mc, session.motion.position());
+    if (placement != null) {
+      session.perchAt(placement);
       mc.gui.getChat().addMessage(Component.translatable("msg.qb2.nap"));
     }
   }
