@@ -199,24 +199,31 @@ public final class SettingsScreen extends Screen {
       values.put("model", "gemma-4-26b-a4b-it");
       values.put("modelChain", "gemma-4-26b-a4b-it,gemma-4-31b-it,gemini-2.5-flash-lite");
       values.put("ambientModel", "gemma-4-26b-a4b-it");
+      values.put("fallbackProvider", "openai");
+      values.put("fallbackEndpoint", "http://127.0.0.1:11434/v1");
+      values.put("fallbackModel", "gemma3:1b");
       values.put("tokenBudget", "950");
-      message = "Preset applied: Google Gemma 4 Slim (Save to activate).";
+      message = "Preset applied: Google Gemma 4 + Local 1B VRAM Fallback (Save to activate).";
     } else if (p == 1) {
       values.put("provider", "google");
       values.put("endpoint", "https://generativelanguage.googleapis.com/v1beta");
       values.put("model", "gemma-4-31b-it");
       values.put("modelChain", "gemma-4-31b-it,gemma-4-26b-a4b-it,gemini-2.5-flash-lite");
       values.put("ambientModel", "gemma-4-26b-a4b-it");
+      values.put("fallbackProvider", "openai");
+      values.put("fallbackEndpoint", "http://127.0.0.1:11434/v1");
+      values.put("fallbackModel", "gemma3:1b");
       values.put("tokenBudget", "1050");
-      message = "Preset applied: Google 31B Primary (Save to activate).";
+      message = "Preset applied: Google 31B + Local 1B VRAM Fallback (Save to activate).";
     } else {
       values.put("provider", "openai");
       values.put("endpoint", "http://127.0.0.1:11434/v1");
-      values.put("model", "gemma3:12b");
-      values.put("modelChain", "gemma3:12b,gemma3:4b");
-      values.put("ambientModel", "gemma3:4b");
-      values.put("tokenBudget", "1200");
-      message = "Preset applied: Local Ollama (Save to activate).";
+      values.put("model", "gemma3:1b");
+      values.put("modelChain", "gemma3:1b");
+      values.put("ambientModel", "gemma3:1b");
+      values.put("tokenBudget", "950");
+      if (values.getOrDefault("apiKey", "").isBlank()) values.put("apiKey", "ollama");
+      message = "Preset applied: 100% Local Ollama gemma3:1b in VRAM (Save to activate).";
     }
     rebuildWidgets();
   }

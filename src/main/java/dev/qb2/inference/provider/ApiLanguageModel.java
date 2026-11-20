@@ -57,6 +57,9 @@ public final class ApiLanguageModel implements LanguageModel {
       String fp = settings.fallbackProvider.isBlank() ? settings.provider : settings.fallbackProvider;
       String fe = settings.fallbackEndpoint.isBlank() ? settings.endpoint : settings.fallbackEndpoint;
       String fk = fallbackKey.isBlank() ? key : fallbackKey;
+      if (fk.isBlank() && fp.equals("openai") && (fe.contains("127.0.0.1:11434") || fe.contains("localhost:11434"))) {
+        fk = "ollama";
+      }
       String reply = completeWith(fp, fe, settings.fallbackModel, fk, context);
       ModelHealth.markHealthy(settings.fallbackModel);
       lastUsedModel = "fallback:" + settings.fallbackModel;
