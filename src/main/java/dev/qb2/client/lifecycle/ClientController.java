@@ -415,6 +415,15 @@ public final class ClientController {
 
   private void enqueue(Trigger trigger) {
     if (session == null || configuration.settings().paused) return;
+    // Urgent direct user requests (Look Here, Radial Menu, Chat, Voice, Show Item) preempt any
+    // stale in-flight background curiosity/world-change request so Cubey never answers about dirt!
+    if (trigger.priority() == 0) {
+      triggers.removeIf(t -> t.priority() > 0);
+      if (mind.busy() && activePriority > 0) {
+        epoch++;
+        mind.cancel(epoch);
+      }
+    }
     if (trigger.priority() > 0
         && triggers.stream().anyMatch(t -> t.reason().equals(trigger.reason()))) return;
     if (triggers.size() >= 8) {

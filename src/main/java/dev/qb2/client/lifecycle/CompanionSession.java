@@ -542,7 +542,17 @@ public final class CompanionSession {
           target == null
               ? WorldSensor.point(mc.player.getLookAngle())
               : target.position().subtract(motion.position());
-      observations = sensor.sample(mc, motion.position(), facing, settings, tick);
+      var sampled = sensor.sample(mc, motion.position(), facing, settings, tick);
+      if (actionTarget != null && tick < actionUntil) {
+        var merged = new ArrayList<Observation>(sampled.size() + 1);
+        merged.add(actionTarget);
+        for (Observation o : sampled) {
+          if (!o.key().equals(actionTarget.key())) merged.add(o);
+        }
+        observations = List.copyOf(merged);
+      } else {
+        observations = sampled;
+      }
       attention.update(observations, tick);
       if (!sensor.changes().isEmpty()) {
         for (String c : sensor.changes()) remember(observationsHistory, "t=" + tick + " " + c, 16);

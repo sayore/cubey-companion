@@ -359,5 +359,30 @@ final class ToolCallingAndPriorityQueueTest {
     vs.validate();
     assertEquals("animalese", vs.voiceMode);
     assertEquals("amethyst", vs.cubeyTheme);
+
+    // 11. Attention honors explicit focus lock even when generic terrain scan omits the focused block
+    var att = new dev.qb2.companion.attention.Attention();
+    var rice =
+        new dev.qb2.perception.Observation(
+            "farmersdelight:rice@1,64,1",
+            "farmersdelight:rice",
+            "Rice Seeds",
+            "age=3",
+            new dev.qb2.companion.movement.Point(1.5, 64.5, 1.5),
+            10.0,
+            100L);
+    var dirt =
+        new dev.qb2.perception.Observation(
+            "minecraft:dirt@1,63,1",
+            "minecraft:dirt",
+            "Dirt",
+            "default",
+            new dev.qb2.companion.movement.Point(1.5, 63.5, 1.5),
+            1.0,
+            110L);
+    att.select(rice, 100L);
+    att.holdUntil(300L);
+    att.update(List.of(dirt), 110L);
+    assertEquals("farmersdelight:rice@1,64,1", att.target().key());
   }
 }

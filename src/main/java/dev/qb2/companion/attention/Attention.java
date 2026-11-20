@@ -23,7 +23,10 @@ public final class Attention {
                 .findFirst()
                 .orElse(null);
     if (current != null) target = current;
-    if (target != null && (tick - since < 100 || tick < lockedUntil) && current != null) return;
+    // Always honor an explicit focus lock (Look Here / Radial Menu / active inspection) even if
+    // the generic 10-tick terrain scan did not re-sample that exact block (e.g., crops/small blocks)!
+    if (target != null && tick < lockedUntil) return;
+    if (target != null && tick - since < 100 && current != null) return;
     var best =
         observations.stream()
             .max(
