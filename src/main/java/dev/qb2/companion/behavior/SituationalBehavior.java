@@ -6,8 +6,20 @@ import java.util.HashSet;
 import java.util.Set;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LightningBolt;
+import net.minecraft.world.entity.TamableAnimal;
+import net.minecraft.world.entity.animal.Animal;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.monster.EnderMan;
 import net.minecraft.world.entity.monster.Monster;
+import net.minecraft.world.entity.npc.AbstractVillager;
+import net.minecraft.world.item.BowItem;
+import net.minecraft.world.item.CrossbowItem;
+import net.minecraft.world.item.PickaxeItem;
+import net.minecraft.world.item.SpyglassItem;
+import net.minecraft.world.item.UseAnim;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.JukeboxBlockEntity;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -15,9 +27,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 
 /**
- * Purely client-local situational micro-behaviors (zero LLM tokens) that make QB2 feel alive in
- * response to eye contact, sneaking, crafting, rain, nearby threats, darkness, item drops, warmth,
- * player damage, and level-ups/music.
+ * Purely client-local situational micro-behaviors (20 behaviors + pet riding/playing + dynamic hats
+ * + rare character easter eggs, 0 LLM tokens).
  */
 public final class SituationalBehavior {
   public boolean sneaking;
@@ -26,21 +37,43 @@ public final class SituationalBehavior {
   public boolean rainSeeking;
   public boolean warmGlow;
   public boolean dancing;
+  public boolean sleepingWithPlayer;
+  public boolean aimingSpotter;
+  public boolean wingmanMode;
+  public boolean eatingWithPlayer;
+  public boolean sunsetGlow;
+  public boolean portalResonance;
+  public boolean fishingWatch;
+  public boolean fishingBiteHop;
+
   public int greetingTicks;
   public int threatTicks;
   public int itemDropTicks;
   public int concernTicks;
   public int celebrateTicks;
   public int rainShiverTicks;
+  public int abyssLookTicks;
+  public int oreSparkleTicks;
+  public int lightningStartleTicks;
+  public int barrelRollTicks;
+  public int petPlayTicks;
+
   public Point focusLookOverride;
+  public Point specialGoalOverride;
+  public Entity perchedEntity;
   public boolean wantForwardFov;
   public boolean triggerGreetingSound;
   public boolean triggerCelebrateSound;
+  public float wingmanRoll;
+  public String forcedHat = "auto";
+  public String activeHat = "none";
 
   private int eyeContactTicks;
   private long lastGreetingTick = -1000;
   private int lastXpLevel = -1;
+  private float lastPlayerYaw;
   private final Set<Integer> seenDropIds = new HashSet<>();
+  private final Set<Integer> seenLightningIds = new HashSet<>();
 
   public void tick(Minecraft mc, Point cubePos, long tick, boolean perched) {
     triggerGreetingSound = false;
@@ -53,9 +86,29 @@ public final class SituationalBehavior {
     if (concernTicks > 0) concernTicks--;
     if (celebrateTicks > 0) celebrateTicks--;
     if (rainShiverTicks > 0) rainShiverTicks--;
+    if (abyssLookTicks > 0) abyssLookTicks--;
+    if (oreSparkleTicks > 0) oreSparkleTicks--;
+    if (lightningStartleTicks > 0) lightningStartleTicks--;
+    if (barrelRollTicks > 0) barrelRollTicks--;
+    if (petPlayTicks > 0) petPlayTicks--;
 
     var player = mc.player;
     var level = mc.level;
+    specialGoalOverride = null;
+
+    // Validate perched entity (pet/animal riding)
+    if (perchedEntity != null) {
+      if (!perchedEntity.isAlive()
+          || perchedEntity.distanceTo(player) > 14.0
+          || player.hurtTime > 0
+          || threatTicks > 0) {
+        perchedEntity = null;
+      } else {
+        var box = perchedEntity.getBoundingBox();
+        specialGoalOverride =
+            new Point(perchedEntity.getX(), box.maxY + 0.13, perchedEntity.getZ());
+      }
+    }
 
     // 2. Sneak sync
     sneaking = player.isCrouching();
@@ -75,6 +128,57 @@ public final class SituationalBehavior {
       triggerCelebrateSound = true;
     }
     lastXpLevel = xp;
+
+    // 11. Bed / sleep companion
+    sleepingWithPlayer = player.isSleeping();
+    if (sleepingWithPlayer) {
+      Vec3 bedFoot = player.position().add(player.getLookAngle().multiply(1, 0, 1).normalize().scale(0.8));
+      specialGoalOverride = new Point(bedFoot.x, player.getY() + 0.72, bedFoot.z);
+    }
+
+    // 12. Fishing bobber spectator & bite hop
+    var hook = player.fishing;
+    fishingWatch = hook != null && hook.isAlive();
+    fishingBiteHop = false;
+    if (fishingWatch) {
+      Vec3 hPos = hook.position();
+      specialGoalOverride = new Point(hPos.x + 0.55, hPos.y + 0.75, hPos.z + 0.55);
+      focusLookOverride = new Point(hPos.x, hPos.y, hPos.z);
+      if (hook.getDeltaMovement().y < -0.08) {
+        fishingBiteHop = true;
+      }
+    }
+
+    // 13. Aiming spotter (Bow / Crossbow / Spyglass) & 19. Eating/Drinking companion
+    var activeItem = player.getUseItem();
+    boolean using = player.isUsingItem() && !activeItem.isEmpty();
+    aimingSpotter =
+        using
+            && (activeItem.getItem() instanceof BowItem
+                || activeItem.getItem() instanceof CrossbowItem
+                || activeItem.getItem() instanceof SpyglassItem);
+    eatingWithPlayer =
+        using
+            && (activeItem.getUseAnimation() == UseAnim.EAT
+                || activeItem.getUseAnimation() == UseAnim.DRINK);
+    if (aimingSpotter) {
+      Vec3 forward = player.getLookAngle().normalize();
+      Vec3 right = forward.cross(new Vec3(0, 1, 0)).normalize();
+      Vec3 spotter = player.getEyePosition().add(right.scale(0.75)).add(forward.scale(0.4)).add(0, 0.25, 0);
+      specialGoalOverride = WorldSensor.point(spotter);
+      focusLookOverride = WorldSensor.point(player.getEyePosition().add(forward.scale(16.0)));
+    }
+
+    // 15. Wingman formation (Elytra / Boat / Minecart / Fast sprint)
+    wingmanMode = player.isFallFlying() || player.isPassenger();
+    float yawDelta = (player.getYRot() - lastPlayerYaw) % 360f;
+    if (yawDelta > 180f) yawDelta -= 360f;
+    if (yawDelta < -180f) yawDelta += 360f;
+    lastPlayerYaw = player.getYRot();
+    wingmanRoll = wingmanMode ? Math.clamp(-yawDelta * 2.8f, -38f, 38f) : 0f;
+    if (wingmanMode && barrelRollTicks == 0 && tick % 140 == 0) {
+      barrelRollTicks = 28; // Rare wingman barrel roll easter egg!
+    }
 
     // 1. Eye-contact greeting (~0.8s gaze within ~12 deg)
     Vec3 eye = player.getEyePosition();
@@ -96,7 +200,7 @@ public final class SituationalBehavior {
       eyeContactTicks = 0;
     }
 
-    // Periodic environment checks (every 10 ticks = 0.5s, super cheap)
+    // Periodic environment checks (every 10 ticks = 0.5s)
     if (tick % 10 == 0) {
       BlockPos playerBp = player.blockPosition();
       BlockPos cubeBp = BlockPos.containing(cubePos.x(), cubePos.y(), cubePos.z());
@@ -109,6 +213,44 @@ public final class SituationalBehavior {
           level.isRaining() && level.hasChunkAt(cubeBp) && level.canSeeSky(cubeBp);
       if (rainingOnCube && !rainSeeking) rainShiverTicks = 20;
       rainSeeking = rainingOnCube;
+
+      // 20. Sunrise / Sunset horizon moment
+      long dayTime = level.getDayTime() % 24000L;
+      boolean goldenHour =
+          (dayTime >= 22800L || dayTime <= 800L) || (dayTime >= 11600L && dayTime <= 13200L);
+      sunsetGlow = goldenHour && level.hasChunkAt(playerBp) && level.canSeeSky(playerBp);
+
+      // 18. Thunder / Lightning startle reflex
+      if (level.isThundering()) {
+        var bolts =
+            level.getEntitiesOfClass(
+                LightningBolt.class, new AABB(player.position(), player.position()).inflate(48.0));
+        for (LightningBolt bolt : bolts) {
+          if (seenLightningIds.add(bolt.getId())) {
+            lightningStartleTicks = 45;
+            perchedEntity = null;
+            break;
+          }
+        }
+        if (seenLightningIds.size() > 32) seenLightningIds.clear();
+      }
+
+      // 14. Abyss / Cliff peer down (> 9 blocks drop in front of player)
+      if (!wingmanMode && !perched && abyssLookTicks == 0 && tick % 60 == 0) {
+        Vec3 front = player.position().add(player.getLookAngle().multiply(1, 0, 1).normalize().scale(2.0));
+        BlockPos edgeBp = BlockPos.containing(front.x, player.getY(), front.z);
+        if (level.hasChunkAt(edgeBp)) {
+          int airDrop = 0;
+          for (int dy = 0; dy <= 10; dy++) {
+            if (level.getBlockState(edgeBp.below(dy)).isAir()) airDrop++;
+            else break;
+          }
+          if (airDrop >= 9) {
+            abyssLookTicks = 45;
+            focusLookOverride = new Point(front.x, player.getY() - 8.0, front.z);
+          }
+        }
+      }
 
       // 5. Threat reflex on nearby hostile mobs (< 6.5 blocks)
       var mobs =
@@ -126,6 +268,7 @@ public final class SituationalBehavior {
         }
         focusLookOverride = WorldSensor.point(nearest.getEyePosition());
         threatTicks = 35;
+        portalResonance = nearest instanceof EnderMan;
       } else if (threatTicks == 0) {
         // 7. Curiosity toward fresh item drops (< 5.5 blocks)
         var drops =
@@ -139,11 +282,43 @@ public final class SituationalBehavior {
           }
         }
         if (seenDropIds.size() > 64) seenDropIds.clear();
+
+        // 16. Pet & Villager playing / riding (< 5.5 blocks)
+        if (perchedEntity == null && specialGoalOverride == null && !wingmanMode) {
+          var friends =
+              level.getEntities(
+                  player,
+                  new AABB(player.position(), player.position()).inflate(5.5),
+                  e ->
+                      e instanceof TamableAnimal
+                          || e instanceof Animal
+                          || e instanceof AbstractVillager);
+          if (!friends.isEmpty()) {
+            Entity friend = friends.get(0);
+            if (tick % 160 < 80 && friend instanceof Animal) {
+              // Sit on the pet/animal's head/back!
+              perchedEntity = friend;
+            } else {
+              // Playfully orbit/look at the pet or villager!
+              petPlayTicks = 35;
+              double ang = tick * 0.14;
+              var fb = friend.getBoundingBox();
+              specialGoalOverride =
+                  new Point(
+                      friend.getX() + Math.cos(ang) * 1.15,
+                      fb.maxY + 0.35 + Math.abs(Math.sin(ang * 2)) * 0.2,
+                      friend.getZ() + Math.sin(ang) * 1.15);
+              focusLookOverride = WorldSensor.point(friend.getEyePosition());
+            }
+          }
+        }
       }
 
-      // 8. Warmth near lit furnaces/campfires & 10b. Playing jukebox
+      // 8. Warmth, 10b. Playing jukebox, 17. Ore sparkle, & Portal resonance
       warmGlow = false;
       dancing = false;
+      boolean holdingPickaxe = player.getMainHandItem().getItem() instanceof PickaxeItem;
+      if (threatTicks == 0) portalResonance = false;
       for (int dx = -3; dx <= 3; dx++) {
         for (int dy = -1; dy <= 2; dy++) {
           for (int dz = -3; dz <= 3; dz++) {
@@ -164,18 +339,59 @@ public final class SituationalBehavior {
                 && !jb.getTheItem().isEmpty()) {
               dancing = true;
             }
+            if (st.is(Blocks.NETHER_PORTAL) || st.is(Blocks.END_PORTAL)) {
+              portalResonance = true;
+            }
+            if (holdingPickaxe && oreSparkleTicks == 0) {
+              String bid = BuiltInRegistries.BLOCK.getKey(st.getBlock()).getPath();
+              if (bid.endsWith("_ore") || bid.equals("ancient_debris")) {
+                oreSparkleTicks = 35;
+                focusLookOverride = new Point(bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5);
+              }
+            }
           }
         }
       }
     }
 
-    if (threatTicks == 0 && itemDropTicks == 0) focusLookOverride = null;
+    if (threatTicks == 0
+        && itemDropTicks == 0
+        && abyssLookTicks == 0
+        && oreSparkleTicks == 0
+        && petPlayTicks == 0
+        && !fishingWatch
+        && !aimingSpotter) {
+      focusLookOverride = null;
+    }
+
     wantForwardFov =
         !perched
+            && perchedEntity == null
             && (peeking
                 || concernTicks > 0
                 || celebrateTicks > 0
                 || greetingTicks > 0
-                || darkMode);
+                || darkMode
+                || eatingWithPlayer
+                || lightningStartleTicks > 0
+                || wingmanMode);
+
+    activeHat = resolveHat(player, perched);
+  }
+
+  private String resolveHat(net.minecraft.client.player.LocalPlayer player, boolean perched) {
+    if (forcedHat != null && !forcedHat.equals("auto")) return forcedHat;
+    if (celebrateTicks > 0) return "crown";
+    if (sleepingWithPlayer || perched) return "sleep";
+    if (rainSeeking) return "rain";
+    if (wingmanMode) return "propeller";
+    if (darkMode || oreSparkleTicks > 0 || player.getMainHandItem().getItem() instanceof PickaxeItem)
+      return "miner";
+    if (fishingWatch || eatingWithPlayer || warmGlow) return "chef";
+    return "antenna";
+  }
+
+  public void triggerBarrelRoll() {
+    barrelRollTicks = 28;
   }
 }

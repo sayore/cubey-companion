@@ -92,6 +92,7 @@ public final class CompanionSession {
   }
 
   public void wakeUp() {
+    situational.perchedEntity = null;
     if (!perched) return;
     perched = false;
     perchSpot = null;
@@ -287,7 +288,17 @@ public final class CompanionSession {
                   new AABB(v.x - .17, v.y - .17, v.z - .17, v.x + .17, v.y + .17, v.z + .17));
         };
     var target = actionTarget != null ? actionTarget : attention.target();
-    if (perched && perchSpot != null) {
+    if (situational.perchedEntity != null && situational.specialGoalOverride != null) {
+      Point entitySeat = situational.specialGoalOverride;
+      flightGoal = entitySeat;
+      flightMode = "Riding";
+      if (motion.position().distance(entitySeat) > 0.20) {
+        motion.tickSmoothFollow(entitySeat, entitySeat, 6.0, p -> true, null);
+      } else {
+        motion.reset(entitySeat);
+      }
+      state = bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : "Curious";
+    } else if (perched && perchSpot != null) {
       flightGoal = perchSpot;
       flightMode = "Napping";
       if (motion.position().distance(perchSpot) > 0.05) {
@@ -296,6 +307,18 @@ public final class CompanionSession {
         motion.reset(perchSpot);
       }
       state = bubbles.speaking(tick) ? "Speaking" : thinking ? "Thinking" : "Napping";
+    } else if (situational.specialGoalOverride != null) {
+      flightGoal =
+          FlightClearance.nearest(
+              player, situational.specialGoalOverride, settings.exploreRadius, free);
+      flightMode = situational.sleepingWithPlayer ? "Napping" : "Curious";
+      motion.tickSmoothFollow(player, flightGoal, settings.exploreRadius, free, trail);
+      state =
+          bubbles.speaking(tick)
+              ? "Speaking"
+              : thinking
+                  ? "Thinking"
+                  : situational.sleepingWithPlayer ? "Napping" : flightMode;
     } else {
       String effectiveAction =
           mc.player.isSprinting() || situational.wantForwardFov || bubbles.speaking(tick)

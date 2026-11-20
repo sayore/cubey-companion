@@ -92,6 +92,28 @@ public final class QB2ClientCommands {
                               return 1;
                             }))
                 .then(
+                    Commands.literal("flip")
+                        .executes(
+                            ctx -> {
+                              if (controller.session != null) {
+                                controller.session.situational.triggerBarrelRoll();
+                              }
+                              return 1;
+                            }))
+                .then(
+                    Commands.literal("hat")
+                        .then(
+                            Commands.argument("style", StringArgumentType.word())
+                                .executes(
+                                    ctx -> {
+                                      String h = StringArgumentType.getString(ctx, "style").toLowerCase();
+                                      if (controller.session != null) {
+                                        controller.session.situational.forcedHat = h;
+                                        send("[QB2] Hat set to: " + h + " (use 'auto' for situational hats)");
+                                      }
+                                      return 1;
+                                    })))
+                .then(
                     Commands.literal("search")
                         .then(
                             Commands.argument("query", StringArgumentType.greedyString())
