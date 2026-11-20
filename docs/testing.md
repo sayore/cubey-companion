@@ -71,7 +71,7 @@ Im vollständigen Craftoria-Durchlauf wurden 164.366 öffentliche Katalogfakten 
 
 ## Handoff
 
-QB2-Branch: `feat/qb2-companion`; Worktree: `/mnt/lfs/lfs/repos/cubey2`; Ausgangszustand: leerer Workspace ohne Git-Commit. Alle neuen Quellen liegen nach Verantwortlichkeit unter `src/main/java/dev/qb2`, dazu Tests, Bridge, Wrapper, Installer und Dokumentation.
+QB2-Branch: `feat/qb2-companion`; Ausgangszustand: leerer Workspace ohne Git-Commit. Alle neuen Quellen liegen nach Verantwortlichkeit unter `src/main/java/dev/qb2`, dazu Tests, Bridge, Wrapper, Installer und Dokumentation.
 
 NERVE: Branch `main`, Basis `e40f770`; geändert: `packages/nerve-bun/src/engine.ts`, neu: `test/wal_recovery_test.ts`. Die bereits vorhandene ungetrackte `.issues.json` wurde nicht verändert. Der überprüfbare Patch liegt unter `patches/nerve-wal-recovery.patch`.
 

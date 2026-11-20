@@ -47,7 +47,7 @@ tasks.register('releaseBundle', Zip) {
     archiveFileName = "qb2-${project.version}-bundle.zip"
     destinationDirectory = layout.buildDirectory.dir('distributions')
     from(tasks.named('jar')) { into 'mods' }
-    from('README.md')
+    from('README.md', 'LICENSE')
     from('docs') { into 'docs' }
     from('examples') { into 'examples' }
     from(['bridge/server.ts', 'bridge/article-ids.ts']) { into 'bridge' }

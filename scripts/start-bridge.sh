@@ -16,5 +16,6 @@ if [[ -z "${QB2_NERVE_TOKEN:-}" ]]; then
   export QB2_NERVE_TOKEN
 fi
 
-export QB2_NERVE_REPO="${QB2_NERVE_REPO:-/mnt/lfs/lfs/repos/nerve}"
+export QB2_NERVE_REPO="${QB2_NERVE_REPO:-$(cd "$ROOT/.." && pwd)/nerve}"
+export QB2_SPATIAL_REPO="${QB2_SPATIAL_REPO:-$(cd "$ROOT/.." && pwd)/spatial}"
 exec bun "$ROOT/bridge/server.ts"

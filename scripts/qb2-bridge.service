@@ -4,9 +4,8 @@ After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/mnt/lfs/lfs/repos/cubey2
-Environment=QB2_NERVE_REPO=/mnt/lfs/lfs/repos/nerve
-ExecStart=/mnt/lfs/lfs/repos/cubey2/scripts/start-bridge.sh
+WorkingDirectory=%h/cubey-companion
+ExecStart=%h/cubey-companion/scripts/start-bridge.sh
 Restart=on-failure
 RestartSec=3
 

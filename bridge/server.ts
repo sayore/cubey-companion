@@ -5,8 +5,8 @@ import { pathToFileURL } from "node:url";
 
 // Deliberately consumes the NERVE package entry point, never a copied search implementation.
 process.umask(0o077);
-const repo = resolve(process.env.QB2_NERVE_REPO ?? "/mnt/lfs/lfs/repos/nerve");
-const spatialRepo = resolve(process.env.QB2_SPATIAL_REPO ?? "/mnt/lfs/lfs/repos/spatial");
+const repo = resolve(process.env.QB2_NERVE_REPO ?? join(import.meta.dir, "../../nerve"));
+const spatialRepo = resolve(process.env.QB2_SPATIAL_REPO ?? join(import.meta.dir, "../../spatial"));
 const root = resolve(process.env.QB2_MEMORY_DIR ?? join(import.meta.dir, "data"));
 mkdirSync(join(root, "db"), {recursive: true});
 const lock=join(root,"bridge.lock");

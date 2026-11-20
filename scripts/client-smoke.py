@@ -14,7 +14,7 @@ import threading
 from live_configuration import LiveConfigurationError, load_live_environment
 
 ROOT = Path(__file__).resolve().parent.parent
-REPO = Path(os.environ.get('QB2_NERVE_REPO', '/mnt/lfs/lfs/repos/nerve')).resolve()
+REPO = Path(os.environ.get('QB2_NERVE_REPO', ROOT.parent / 'nerve')).resolve()
 
 
 class Fixture(http.server.BaseHTTPRequestHandler):
