@@ -43,6 +43,8 @@ public final class CompanionSession {
   public boolean pendingBoingSound;
   public boolean pendingSleepSound;
   public boolean pendingGentlePlace;
+  public int catchVisitTicks;
+  public Point catchVisitPos;
   public String flightMode = "Idle";
   public Point flightGoal = Point.ZERO;
   public volatile boolean apiBackoff;
@@ -271,6 +273,11 @@ public final class CompanionSession {
       if (settings.thoughts) bubbles.thought(situational.pendingDurabilityWarning, tick);
       situational.pendingDurabilityWarning = "";
     }
+    if (!situational.pendingEmote.isBlank()) {
+      bubbles.emote(situational.pendingEmote, tick);
+      situational.pendingEmote = "";
+    }
+    if (catchVisitTicks > 0) catchVisitTicks--;
     if (situational.concernTicks > 0 || situational.threatTicks > 0 || situational.celebrateTicks > 0) {
       wakeUp();
     }
@@ -395,14 +402,61 @@ public final class CompanionSession {
         state = "Idle";
       }
     } else if (grabThrow.isThrown()) {
-      Point next = grabThrow.tickThrown(motion.position(), free);
+      java.util.function.Function<Point, GrabThrowPhysics.Surface> surfaceAt =
+          p -> {
+            var bp = net.minecraft.core.BlockPos.containing(p.x(), p.y(), p.z());
+            if (!mc.level.hasChunkAt(bp)) return GrabThrowPhysics.Surface.SOLID;
+            var fl = mc.level.getFluidState(bp);
+            if (fl.is(net.minecraft.tags.FluidTags.LAVA)) return GrabThrowPhysics.Surface.LAVA;
+            if (fl.is(net.minecraft.tags.FluidTags.WATER)) return GrabThrowPhysics.Surface.WATER;
+            if (free.test(p)) return GrabThrowPhysics.Surface.AIR;
+            var st = mc.level.getBlockState(bp);
+            if (st.is(net.minecraft.world.level.block.Blocks.SLIME_BLOCK))
+              return GrabThrowPhysics.Surface.SLIME;
+            if (st.is(net.minecraft.world.level.block.Blocks.HAY_BLOCK)
+                || st.is(net.minecraft.tags.BlockTags.WOOL)
+                || st.is(net.minecraft.tags.BlockTags.BEDS)) return GrabThrowPhysics.Surface.SOFT;
+            return GrabThrowPhysics.Surface.SOLID;
+          };
+      Point next = grabThrow.tickThrownSurface(motion.position(), surfaceAt);
       motion.stepDirect(next);
       flightGoal = next;
       flightMode = "Wingman";
       state = "Wingman";
       if (grabThrow.consumeJustBounced()) {
+        var impact = grabThrow.consumeLastImpact();
         pendingBoingSound = true;
-        bubbles.emote("*boing*", tick);
+        switch (impact) {
+          case SPLASH -> {
+            bubbles.emote("*splash!*", tick);
+            for (int k = 0; k < 6; k++) {
+              mc.level.addParticle(
+                  net.minecraft.core.particles.ParticleTypes.SPLASH,
+                  next.x(),
+                  next.y(),
+                  next.z(),
+                  (Math.random() - 0.5) * 0.25,
+                  0.18,
+                  (Math.random() - 0.5) * 0.25);
+            }
+          }
+          case LAVA_NOPE -> {
+            situational.barrelRollTicks = 28;
+            situational.concernTicks = 35;
+            bubbles.emote("🔥 NOPE!!", tick);
+            mc.level.addParticle(
+                net.minecraft.core.particles.ParticleTypes.FLAME,
+                next.x(),
+                next.y() - 0.1,
+                next.z(),
+                0,
+                0.08,
+                0);
+          }
+          case SLIME_BOING -> bubbles.emote("*BOIIING!*", tick);
+          case SOFT_PLOP -> bubbles.emote("*plop*", tick);
+          default -> bubbles.emote("*boing*", tick);
+        }
       }
       // Multiplayer "Fang mich!" (Catch!): if thrown Cubey flies close to another player or peer Cubey!
       if (grabThrow.isThrown() && settings.multiplayerSync) {
@@ -427,15 +481,22 @@ public final class CompanionSession {
           situational.greetingTicks = 28;
           situational.triggerCelebrateSound = true;
           situational.focusLookOverride = catchTarget;
+          catchVisitTicks = 60; // Hover happily by the other player for ~3s before flying back!
+          catchVisitPos = next;
           String catchText = "✦ Fang! ♥";
           bubbles.emote(catchText, tick);
           pendingSyncSpeech = catchText;
         }
       }
-      if (!grabThrow.isThrown()) {
+      if (!grabThrow.isThrown() && catchVisitTicks == 0) {
         action = "return";
         actionUntil = tick + 100;
       }
+    } else if (catchVisitTicks > 0 && catchVisitPos != null) {
+      flightGoal = catchVisitPos;
+      flightMode = "Curious";
+      state = "Curious";
+      motion.tickSmoothFollow(catchVisitPos, catchVisitPos, 4.0, free, null);
     } else if (guideDestination != null) {
       double distToDest = player.distance(guideDestination);
       if (distToDest <= 3.0) {
@@ -529,6 +590,15 @@ public final class CompanionSession {
           && !inCombat
           && !working) {
         desired = motion.position();
+      }
+      // Auto-sidestep when holding a BlockItem so Cubey never blocks your first block placement!
+      if (mc.player.getMainHandItem().getItem() instanceof net.minecraft.world.item.BlockItem
+          && mc.hitResult instanceof net.minecraft.world.phys.BlockHitResult bhr) {
+        var placeBp = bhr.getBlockPos().relative(bhr.getDirection());
+        Point placeCenter = new Point(placeBp.getX() + 0.5, placeBp.getY() + 0.5, placeBp.getZ() + 0.5);
+        if (desired.distance(placeCenter) < 0.95) {
+          desired = desired.add(new Point(side.x * 1.15, 0.75, side.z * 1.15));
+        }
       }
       // Prevent clipping into the player's body or camera: keep >= 1.25 blocks horizontal clearance.
       Point fromPlayer = desired.subtract(player);

@@ -49,6 +49,7 @@ public final class SettingsScreen extends Screen {
   private static final List<String> TAB_VISUALS =
       List.of(
           "companionName",
+          "cubeySkin",
           "cubeyTheme",
           "voiceMode",
           "soundVolume",
@@ -68,6 +69,8 @@ public final class SettingsScreen extends Screen {
   private static final List<String> VOICE_MODES = List.of("animalese", "chirp", "silent");
   private static final List<String> THEMES =
       List.of("neo_cyan", "sakura", "amethyst", "solar", "emerald", "frost");
+  private static final List<String> SKINS =
+      List.of("obsidian", "porcelain", "brass", "holo", "carbon", "pastel");
 
   private record SliderSpec(double min, double max, boolean integer, String suffix) {}
 
@@ -122,6 +125,7 @@ public final class SettingsScreen extends Screen {
           Map.entry("thoughts", "Show Thought Bubbles"),
           Map.entry("speech", "Show Speech Bubbles"),
           Map.entry("companionName", "Cubey Name"),
+          Map.entry("cubeySkin", "Cubey Chassis Skin"),
           Map.entry("cubeyTheme", "Cubey Color Theme"),
           Map.entry("voiceMode", "Cubey Voice Style"),
           Map.entry("sounds", "Cubey Sounds (On/Off)"),
@@ -149,6 +153,8 @@ public final class SettingsScreen extends Screen {
   private int presetIndex;
   private String searchQuery = "";
   private List<Episode> inspectorResults = List.of();
+  private long previewSpeakUntilMs;
+  private float previewDragYaw;
   private String message = "Changes apply after Save. Keys are masked and stored separately.";
 
   public SettingsScreen(Screen parent, ClientController controller) {
@@ -219,8 +225,11 @@ public final class SettingsScreen extends Screen {
       labels.add(FRIENDLY_LABELS.getOrDefault(name, name));
       String current = values.getOrDefault(name, "");
       boolean bool = current.equals("true") || current.equals("false");
-      if (name.equals("voiceMode") || name.equals("cubeyTheme")) {
-        List<String> cycle = name.equals("voiceMode") ? VOICE_MODES : THEMES;
+      if (name.equals("voiceMode") || name.equals("cubeyTheme") || name.equals("cubeySkin")) {
+        List<String> cycle =
+            name.equals("voiceMode")
+                ? VOICE_MODES
+                : name.equals("cubeySkin") ? SKINS : THEMES;
         addRenderableWidget(
             Button.builder(
                     Component.literal(formatChoiceLabel(name, current)),
@@ -484,6 +493,50 @@ public final class SettingsScreen extends Screen {
         width / 2,
         height - 78,
         0xBBBBBB);
+
+    // Interactive live 3D Cubey preview card on the right when screen is wide enough!
+    if (width >= 470 && tab != 3) {
+      int px = width / 2 + 162;
+      int py = 54;
+      int pw = Math.min(110, width - px - 10);
+      int ph = 132;
+      if (pw >= 76) {
+        graphics.fill(px, py, px + pw, py + ph, 0xAA0C1624);
+        graphics.renderOutline(px, py, pw, ph, 0xAA4499CC);
+        String previewName = values.getOrDefault("companionName", "Cubey");
+        graphics.drawCenteredString(
+            font, font.plainSubstrByWidth(previewName, pw - 8), px + pw / 2, py + 6, 0xFFD8F4FF);
+        double time = System.nanoTime() / 1e9;
+        float yaw = (float) ((time * 32.0 + previewDragYaw) % 360.0);
+        boolean speakingNow = System.currentTimeMillis() < previewSpeakUntilMs;
+        var pose = graphics.pose();
+        pose.pushPose();
+        pose.translate(px + pw / 2.0f, py + ph / 2.0f + 4f, 120f);
+        pose.scale(155f, -155f, 155f);
+        dev.qb2.rendering.cube.CompanionRenderer.renderGuiPreview(
+            pose,
+            graphics.bufferSource(),
+            time,
+            yaw,
+            16f,
+            values.getOrDefault("cubeySkin", "obsidian"),
+            values.getOrDefault("cubeyTheme", "neo_cyan"),
+            speakingNow);
+        pose.popPose();
+        String skinLbl = formatChoiceLabel("cubeySkin", values.getOrDefault("cubeySkin", "obsidian"));
+        graphics.drawCenteredString(
+            font, font.plainSubstrByWidth(skinLbl, pw - 6), px + pw / 2, py + ph - 14, 0xFF8CC4E8);
+      }
+    }
+  }
+
+  @Override
+  public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+    if (width >= 470 && mouseX > width / 2.0 + 155) {
+      previewDragYaw += (float) (dragX * 1.4);
+      return true;
+    }
+    return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
   }
 
   private void previewVoice() {
@@ -491,6 +544,7 @@ public final class SettingsScreen extends Screen {
     double pitch = parseDoubleOr(values.get("voicePitch"), 1.0);
     double var = parseDoubleOr(values.get("voiceVariance"), 0.08);
     String mode = values.getOrDefault("voiceMode", "animalese");
+    previewSpeakUntilMs = System.currentTimeMillis() + 550L;
     controller.previewVoice(vol, pitch, var, mode);
   }
 
@@ -508,6 +562,16 @@ public final class SettingsScreen extends Screen {
         case "silent" -> "Still (Mute)";
         case "chirp" -> "Einzelner Ton";
         default -> "Animal Crossing";
+      };
+    }
+    if ("cubeySkin".equals(field)) {
+      return switch (val) {
+        case "porcelain" -> "Porcelain White";
+        case "brass" -> "Create Brass";
+        case "holo" -> "Hologram";
+        case "carbon" -> "Stealth Carbon";
+        case "pastel" -> "Pastel Mochi";
+        default -> "Obsidian";
       };
     }
     return switch (val) {

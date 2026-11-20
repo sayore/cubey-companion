@@ -36,6 +36,9 @@ public final class CubeySyncValidator {
   public static final Set<String> ALLOWED_THEMES =
       Set.of("neo_cyan", "sakura", "amethyst", "solar", "emerald", "frost");
 
+  public static final Set<String> ALLOWED_SKINS =
+      Set.of("obsidian", "porcelain", "brass", "holo", "carbon", "pastel");
+
   public record ValidatedTelemetry(
       double x,
       double y,
@@ -101,7 +104,13 @@ public final class CubeySyncValidator {
     String safeTheme = ALLOWED_THEMES.contains(parts[1]) ? parts[1] : "neo_cyan";
     if (parts.length == 2) return safeHat + "|" + safeTheme;
     String safeName = sanitizeName(parts[2]);
-    return safeName.isBlank() ? (safeHat + "|" + safeTheme) : (safeHat + "|" + safeTheme + "|" + safeName);
+    if (parts.length == 3) {
+      return safeName.isBlank()
+          ? (safeHat + "|" + safeTheme)
+          : (safeHat + "|" + safeTheme + "|" + safeName);
+    }
+    String safeSkin = ALLOWED_SKINS.contains(parts[3]) ? parts[3] : "obsidian";
+    return safeHat + "|" + safeTheme + "|" + (safeName.isBlank() ? "Cubey" : safeName) + "|" + safeSkin;
   }
 
   public static String sanitizeName(String raw) {

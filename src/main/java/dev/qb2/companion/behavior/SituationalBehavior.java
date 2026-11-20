@@ -59,6 +59,16 @@ public final class SituationalBehavior {
   public int petPlayTicks;
   public int workClearanceTicks;
   public int combatTicks;
+  public int createSpinTicks;
+  public int ae2SyncTicks;
+  public int magicHelixTicks;
+  public int stretchFidgetTicks;
+  public int juggleFidgetTicks;
+  public boolean cookingNear;
+  public String pendingEmote = "";
+  private long lastLavaWarnTick = -1000;
+  private long lastCraftoriaEmoteTick = -1000;
+  private long lastFidgetTick = -1000;
 
   public Point focusLookOverride;
   public Point specialGoalOverride;
@@ -105,6 +115,11 @@ public final class SituationalBehavior {
     if (petPlayTicks > 0) petPlayTicks--;
     if (workClearanceTicks > 0) workClearanceTicks--;
     if (combatTicks > 0) combatTicks--;
+    if (createSpinTicks > 0) createSpinTicks--;
+    if (ae2SyncTicks > 0) ae2SyncTicks--;
+    if (magicHelixTicks > 0) magicHelixTicks--;
+    if (stretchFidgetTicks > 0) stretchFidgetTicks--;
+    if (juggleFidgetTicks > 0) juggleFidgetTicks--;
     social.tickDown();
     socialYaw = 0f;
     socialPitch = 0f;
@@ -147,8 +162,8 @@ public final class SituationalBehavior {
     // 2. Sneak sync
     sneaking = player.isCrouching();
 
-    // 3. Over-the-shoulder peeking when container/workbench/machine UI is open
-    peeking = mc.screen != null && !(mc.screen instanceof dev.qb2.ui.screens.SettingsScreen);
+    // 3. Over-the-shoulder peeking ONLY when a real container/inventory/machine screen is open
+    peeking = mc.screen instanceof net.minecraft.client.gui.screens.inventory.AbstractContainerScreen<?>;
 
     // 9. Reaction to player taking damage
     if (player.hurtTime > 0 && concernTicks < 35) {
@@ -198,7 +213,9 @@ public final class SituationalBehavior {
     if (aimingSpotter) {
       Vec3 forward = player.getLookAngle().normalize();
       Vec3 right = forward.cross(new Vec3(0, 1, 0)).normalize();
-      Vec3 spotter = player.getEyePosition().add(right.scale(0.75)).add(forward.scale(0.4)).add(0, 0.25, 0);
+      // Sit slightly behind & right of the shoulder so Cubey NEVER blocks arrows or crosshairs!
+      Vec3 spotter =
+          player.getEyePosition().add(right.scale(1.15)).add(forward.scale(-0.35)).add(0, 0.45, 0);
       specialGoalOverride = WorldSensor.point(spotter);
       focusLookOverride = WorldSensor.point(player.getEyePosition().add(forward.scale(16.0)));
     }
@@ -271,8 +288,10 @@ public final class SituationalBehavior {
       BlockPos playerBp = player.blockPosition();
       BlockPos cubeBp = BlockPos.containing(cubePos.x(), cubePos.y(), cubePos.z());
 
-      // 6. Cave / darkness companion
-      darkMode = level.hasChunkAt(playerBp) && level.getMaxLocalRawBrightness(playerBp) < 5;
+      // 6. Cave / darkness / underwater companion
+      darkMode =
+          player.isUnderWater()
+              || (level.hasChunkAt(playerBp) && level.getMaxLocalRawBrightness(playerBp) < 5);
 
       // Tool / armor 5% durability saver warning (local, 0 LLM tokens)
       checkDurability(player, tick);
@@ -388,10 +407,11 @@ public final class SituationalBehavior {
         }
       }
 
-      // 8. Warmth, 10b. Playing jukebox, 17. Ore sparkle, & Portal resonance
+      // 8. Warmth, 10b. Playing jukebox, 17. Ore sparkle, Portal resonance, Lava warn & Craftoria!
       warmGlow = false;
       dancing = false;
-      boolean holdingPickaxe = player.getMainHandItem().getItem() instanceof PickaxeItem;
+      cookingNear = false;
+      boolean holdingPickaxe = isMiningTool(player.getMainHandItem());
       if (threatTicks == 0) portalResonance = false;
       for (int dx = -3; dx <= 3; dx++) {
         for (int dy = -1; dy <= 2; dy++) {
@@ -399,6 +419,7 @@ public final class SituationalBehavior {
             BlockPos bp = cubeBp.offset(dx, dy, dz);
             if (!level.hasChunkAt(bp)) continue;
             var st = level.getBlockState(bp);
+            if (st.isAir()) continue;
             if ((st.is(Blocks.CAMPFIRE)
                     || st.is(Blocks.SOUL_CAMPFIRE)
                     || st.is(Blocks.FURNACE)
@@ -416,13 +437,79 @@ public final class SituationalBehavior {
             if (st.is(Blocks.NETHER_PORTAL) || st.is(Blocks.END_PORTAL)) {
               portalResonance = true;
             }
+            // Mining Lava Danger Warning (0 LLM tokens!)
+            if ((holdingPickaxe || workClearanceTicks > 0)
+                && st.is(Blocks.LAVA)
+                && tick - lastLavaWarnTick > 300) {
+              lastLavaWarnTick = tick;
+              concernTicks = Math.max(concernTicks, 40);
+              pendingEmote = "⚠ Lava!";
+            }
+            var rl = BuiltInRegistries.BLOCK.getKey(st.getBlock());
+            String ns = rl.getNamespace();
+            String bid = rl.getPath();
             if (holdingPickaxe && oreSparkleTicks == 0) {
-              String bid = BuiltInRegistries.BLOCK.getKey(st.getBlock()).getPath();
               if (bid.endsWith("_ore") || bid.equals("ancient_debris")) {
                 oreSparkleTicks = 35;
                 focusLookOverride = new Point(bp.getX() + 0.5, bp.getY() + 0.5, bp.getZ() + 0.5);
               }
             }
+            // Craftoria zero-token modpack micro-reactions!
+            if (tick - lastCraftoriaEmoteTick > 420) {
+              if (ns.equals("create")
+                  && (bid.contains("cogwheel")
+                      || bid.contains("water_wheel")
+                      || bid.contains("mixer")
+                      || bid.contains("blaze_burner"))) {
+                createSpinTicks = 55;
+                lastCraftoriaEmoteTick = tick;
+                pendingEmote = bid.contains("blaze") ? "🔥 o_O" : "⚙ ♪";
+              } else if (ns.equals("ae2")
+                  && (bid.contains("controller")
+                      || bid.contains("terminal")
+                      || bid.contains("drive"))) {
+                ae2SyncTicks = 55;
+                lastCraftoriaEmoteTick = tick;
+                pendingEmote = "◈ sync";
+              } else if (ns.equals("ars_nouveau")
+                  || ns.equals("irons_spellbooks")
+                  || ns.equals("waystones")
+                  || st.is(Blocks.ENCHANTING_TABLE)) {
+                magicHelixTicks = 60;
+                lastCraftoriaEmoteTick = tick;
+                pendingEmote = "✦";
+              } else if (ns.equals("farmersdelight")
+                  && (bid.contains("cooking_pot") || bid.contains("skillet"))) {
+                cookingNear = true;
+                lastCraftoriaEmoteTick = tick;
+                pendingEmote = "🍲 ♪";
+              } else if (ns.equals("blahaj")) {
+                lastCraftoriaEmoteTick = tick;
+                pendingEmote = "♥";
+              }
+            } else if (ns.equals("farmersdelight")
+                && (bid.contains("cooking_pot") || bid.contains("skillet"))) {
+              cookingNear = true;
+            }
+          }
+        }
+      }
+
+      // Rare organic idle fidgets (every ~35-55s when calm so Cubey feels alive!)
+      if (!perched
+          && !wingmanMode
+          && combatTicks == 0
+          && workClearanceTicks == 0
+          && !social.isActive()
+          && tick - lastFidgetTick > 750) {
+        long hash = (tick / 10L) * 2654435761L;
+        int roll = (int) Math.floorMod(hash, 100);
+        if (roll < 8) {
+          lastFidgetTick = tick;
+          if (roll < 4) {
+            stretchFidgetTicks = 44;
+          } else {
+            juggleFidgetTicks = 52;
           }
         }
       }
@@ -644,7 +731,7 @@ public final class SituationalBehavior {
     if (wingmanMode) return "propeller";
     if (darkMode || oreSparkleTicks > 0 || player.getMainHandItem().getItem() instanceof PickaxeItem)
       return "miner";
-    if (fishingWatch || eatingWithPlayer || warmGlow) return "chef";
+    if (fishingWatch || eatingWithPlayer || warmGlow || cookingNear) return "chef";
     return "antenna";
   }
 

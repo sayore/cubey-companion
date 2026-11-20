@@ -293,7 +293,13 @@ public final class ClientController {
               session.lastRenderedPitch,
               session.lastRenderedRoll,
               session.state,
-              session.situational.activeHat + "|" + s.cubeyTheme + "|" + s.companionName,
+              session.situational.activeHat
+                  + "|"
+                  + s.cubeyTheme
+                  + "|"
+                  + s.companionName
+                  + "|"
+                  + s.cubeySkin,
               sharedSpeech));
     }
     audio.tickSpeechVoice(mc, s, session.motion.position());

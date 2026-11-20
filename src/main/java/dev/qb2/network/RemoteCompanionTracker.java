@@ -24,6 +24,7 @@ public final class RemoteCompanionTracker {
     public String state = "Idle";
     public String hat = "antenna";
     public String theme = "neo_cyan";
+    public String skin = "obsidian";
     public String cubeyName = "Cubey";
     public String speech = "";
     public long speechUntilTick;
@@ -108,6 +109,7 @@ public final class RemoteCompanionTracker {
     peer.hat = parts.length >= 1 && !parts[0].isBlank() ? parts[0] : "antenna";
     peer.theme = parts.length >= 2 && !parts[1].isBlank() ? parts[1] : "neo_cyan";
     peer.cubeyName = parts.length >= 3 && !parts[2].isBlank() ? parts[2] : "Cubey";
+    peer.skin = parts.length >= 4 && !parts[3].isBlank() ? parts[3] : "obsidian";
     peer.lastUpdateTick = clientTick;
     String cleanSpeech = CubeySyncValidator.sanitizeSpeech(publicSpeech);
     if (!cleanSpeech.isBlank()) {

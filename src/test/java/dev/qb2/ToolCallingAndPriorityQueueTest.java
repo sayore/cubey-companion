@@ -406,5 +406,23 @@ final class ToolCallingAndPriorityQueueTest {
     assertTrue(bub.speaking(210L));
     assertFalse(bub.speaking(275L)); // finished vocalizing, even while bubble stays readable
     assertNotNull(bub.visible(275L, true, true));
+
+    // 14. Skin sync whitelisting & Lava emergency boost + Water skimming in GrabThrowPhysics
+    assertEquals(
+        "miner|sakura|Mina|brass",
+        dev.qb2.network.CubeySyncValidator.sanitizeHatAndTheme("miner|sakura|Mina|brass"));
+    var gtLava = new dev.qb2.companion.movement.GrabThrowPhysics();
+    gtLava.startGrab();
+    gtLava.launch(new dev.qb2.companion.movement.Point(0, -0.2, 1));
+    gtLava.tickThrownSurface(
+        new dev.qb2.companion.movement.Point(0, 64.4, 0),
+        p ->
+            p.y() <= 64.0
+                ? dev.qb2.companion.movement.GrabThrowPhysics.Surface.LAVA
+                : dev.qb2.companion.movement.GrabThrowPhysics.Surface.AIR);
+    assertEquals(
+        dev.qb2.companion.movement.GrabThrowPhysics.ImpactEvent.LAVA_NOPE,
+        gtLava.consumeLastImpact());
+    assertTrue(gtLava.velocity().y() > 0.4);
   }
 }

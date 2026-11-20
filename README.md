@@ -43,7 +43,7 @@ Voraussetzung zum Bauen: **Java 21**.
 ./scripts/install.sh /pfad/zu/deiner/minecraft-instanz
 ```
 
-Oder kopiere `build/libs/qb2-1.0.4-client.jar` direkt in den `mods/`-Ordner deiner Minecraft-1.21.1-NeoForge-Instanz (z. B. in Prism Launcher oder der Modrinth App). Für optionale Multiplayer-Server gibt es zusätzlich die federleichte, reine Server-Sync-JAR `build/libs/qb2-1.0.4-server.jar` (nur für Dedicated Server – Clients bitte immer `*-client.jar` verwenden!).
+Oder kopiere `build/libs/qb2-1.1.0-client.jar` direkt in den `mods/`-Ordner deiner Minecraft-1.21.1-NeoForge-Instanz (z. B. in Prism Launcher oder der Modrinth App). Für optionale Multiplayer-Server gibt es zusätzlich die federleichte, reine Server-Sync-JAR `build/libs/qb2-1.1.0-server.jar` (nur für Dedicated Server – Clients bitte immer `*-client.jar` verwenden!).
 
 ---
 

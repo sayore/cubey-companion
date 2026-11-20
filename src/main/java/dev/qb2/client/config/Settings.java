@@ -23,6 +23,7 @@ public final class Settings {
   public double voicePitch = 1.00, voiceTempo = 1.00, voiceVariance = 0.08;
   public String voiceMode = "animalese";
   public String cubeyTheme = "neo_cyan";
+  public String cubeySkin = "obsidian";
   public String companionName = "Cubey";
   public String triggers = "@cube,@qb,qb2";
   public String style = "calm";
@@ -86,6 +87,7 @@ public final class Settings {
     c.voiceVariance = voiceVariance;
     c.voiceMode = voiceMode;
     c.cubeyTheme = cubeyTheme;
+    c.cubeySkin = cubeySkin;
     c.companionName = companionName;
     c.triggers = triggers;
     c.style = style;
@@ -112,6 +114,8 @@ public final class Settings {
       voiceMode = "animalese";
     if (!java.util.Set.of("neo_cyan", "sakura", "amethyst", "solar", "emerald", "frost")
         .contains(cubeyTheme)) cubeyTheme = "neo_cyan";
+    if (!java.util.Set.of("obsidian", "porcelain", "brass", "holo", "carbon", "pastel")
+        .contains(cubeySkin)) cubeySkin = "obsidian";
     companionName = dev.qb2.network.CubeySyncValidator.sanitizeName(companionName);
     if (companionName.isBlank()) companionName = "Cubey";
     if (modelChain == null) modelChain = "";

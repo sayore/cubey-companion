@@ -25,6 +25,8 @@ public final class CompanionRenderer {
       new dev.qb2.rendering.animation.MorphState();
   private final dev.qb2.rendering.bubbles.BubbleRenderer bubbles =
       new dev.qb2.rendering.bubbles.BubbleRenderer();
+  private final java.util.Deque<Point> speedRibbon = new java.util.ArrayDeque<>();
+  private long lastRibbonTick = -1;
 
   public void render(RenderLevelStageEvent event, CompanionSession session, Settings settings) {
     if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) return;
@@ -67,6 +69,8 @@ public final class CompanionRenderer {
     double sleepBreath = Math.sin(time * 0.72);
     boolean emoting = !napping && session.bubbles.emoting(session.tick);
     double emoteHop = emoting ? Math.abs(Math.sin(time * 9.0)) * 0.075 : 0.0;
+    // Synchronized world-tick time for Jukebox group dance in multiplayer!
+    double danceTime = (mc.level.getGameTime() + partial) * 0.05;
     double bob =
         napping
             ? -0.014
@@ -75,7 +79,7 @@ public final class CompanionRenderer {
                 + (sit.fishingBiteHop
                     ? Math.abs(Math.sin(time * 12.0)) * 0.16
                     : sit.dancing
-                        ? Math.abs(Math.sin(time * 5.0)) * 0.08
+                        ? Math.abs(Math.sin(danceTime * 5.0)) * 0.085
                         : sit.eatingWithPlayer
                             ? Math.sin(time * 9.0) * 0.035
                             : Math.sin(time * (sit.sneaking ? 1.1 : 2.0))
@@ -86,6 +90,7 @@ public final class CompanionRenderer {
         napping
             ? 0f
             : sit.socialYaw
+                + (sit.createSpinTicks > 0 ? (float) (time * 140.0) : 0f)
                 + (sit.celebrateTicks > 0
                     ? (45 - sit.celebrateTicks + partial) * 8.0f
                     : sit.itemDropTicks > 30 ? (45 - sit.itemDropTicks) * 4.0f : 0f);
@@ -185,6 +190,8 @@ public final class CompanionRenderer {
             || thrown;
     boolean inspectingTarget =
         session.guideDestination != null
+            || sit.ae2SyncTicks > 0
+            || sit.stretchFidgetTicks > 0
             || (session.activeTarget() != null && BEAM_ACTIONS.contains(session.action));
     boolean errorVisual = session.apiBackoff || session.errorTintTicks > 0;
 
@@ -281,6 +288,8 @@ public final class CompanionRenderer {
         thinking,
         ms,
         sit.activeHat,
+        settings.cubeySkin,
+        sit.juggleFidgetTicks > 0 || sit.magicHelixTicks > 0,
         intensity,
         er,
         eg,
@@ -290,6 +299,20 @@ public final class CompanionRenderer {
         sb);
     buffers.endBatch(type);
     poses.popPose();
+
+    // 3D Comet Speed Ribbons when thrown or flying fast!
+    if (session.tick != lastRibbonTick) {
+      lastRibbonTick = session.tick;
+      if (thrown || sit.wingmanMode || session.motion.speed() > 0.24) {
+        speedRibbon.addFirst(position);
+        while (speedRibbon.size() > 9) speedRibbon.removeLast();
+      } else if (!speedRibbon.isEmpty()) {
+        speedRibbon.removeLast();
+      }
+    }
+    if (speedRibbon.size() >= 2) {
+      renderSpeedRibbons(buffers, camera, er, eg, eb);
+    }
     if (session.guideDestination != null) {
       renderChestHighlight(buffers, camera, session.guideDestination, time, intensity);
     }
@@ -379,6 +402,8 @@ public final class CompanionRenderer {
           pThink,
           peerMs,
           peer.hat,
+          peer.skin,
+          false,
           intensity,
           er,
           eg,
@@ -420,7 +445,47 @@ public final class CompanionRenderer {
     }
   }
 
-  private static float[] themeColor(String theme) {
+  /**
+   * 4 glowing tapering 3D comet speed-ribbons trailing behind Cubey during fast throws or wingman
+   * flight.
+   */
+  private void renderSpeedRibbons(
+      MultiBufferSource.BufferSource buffers,
+      net.minecraft.world.phys.Vec3 camera,
+      float er,
+      float eg,
+      float eb) {
+    Point[] pts = speedRibbon.toArray(new Point[0]);
+    if (pts.length < 2) return;
+    PoseStack p = new PoseStack();
+    p.pushPose();
+    var lineBuf = buffers.getBuffer(RenderType.lines());
+    double[][] offsets = {{0.09, 0.09}, {-0.09, 0.09}, {0.09, -0.09}, {-0.09, -0.09}};
+    for (double[] off : offsets) {
+      for (int i = 0; i < pts.length - 1; i++) {
+        float fade0 = 1.0f - (i / (float) pts.length);
+        float fade1 = 1.0f - ((i + 1) / (float) pts.length);
+        float x0 = (float) (pts[i].x() - camera.x + off[0] * fade0);
+        float y0 = (float) (pts[i].y() - camera.y + off[1] * fade0);
+        float z0 = (float) (pts[i].z() - camera.z);
+        float x1 = (float) (pts[i + 1].x() - camera.x + off[0] * fade1);
+        float y1 = (float) (pts[i + 1].y() - camera.y + off[1] * fade1);
+        float z1 = (float) (pts[i + 1].z() - camera.z);
+        lineBuf
+            .addVertex(p.last(), x0, y0, z0)
+            .setColor(er, eg, eb, fade0 * 0.80f)
+            .setNormal(p.last(), 0, 1, 0);
+        lineBuf
+            .addVertex(p.last(), x1, y1, z1)
+            .setColor(er, eg, eb, fade1 * 0.65f)
+            .setNormal(p.last(), 0, 1, 0);
+      }
+    }
+    buffers.endBatch(RenderType.lines());
+    p.popPose();
+  }
+
+  public static float[] themeColor(String theme) {
     if (theme == null) return new float[] {0.22f, 0.68f, 1.0f};
     return switch (theme) {
       case "sakura" -> new float[] {1.0f, 0.50f, 0.78f};
@@ -557,6 +622,69 @@ public final class CompanionRenderer {
    * 4) Aerodynamic delta winglets + 3-node trailing ion afterburner in fast flight.
    * 5) 7-mode expressive front-plate Neo-Eyes.
    */
+  public static float[] skinChassisColor(String skin) {
+    if (skin == null) return new float[] {0.026f, 0.036f, 0.052f, 1.0f};
+    return switch (skin) {
+      case "porcelain" -> new float[] {0.82f, 0.86f, 0.90f, 1.0f};
+      case "brass" -> new float[] {0.52f, 0.38f, 0.16f, 1.0f};
+      case "holo" -> new float[] {0.10f, 0.28f, 0.42f, 0.52f};
+      case "carbon" -> new float[] {0.015f, 0.018f, 0.024f, 1.0f};
+      case "pastel" -> new float[] {0.92f, 0.86f, 0.88f, 1.0f};
+      default -> new float[] {0.026f, 0.036f, 0.052f, 1.0f};
+    };
+  }
+
+  /** Renders Cubey directly inside a 2D GUI screen (e.g. live 3D preview in SettingsScreen!). */
+  public static void renderGuiPreview(
+      PoseStack poses,
+      MultiBufferSource.BufferSource buffers,
+      double time,
+      float yawDeg,
+      float pitchDeg,
+      String skin,
+      String theme,
+      boolean speakingPreview) {
+    var v = buffers.getBuffer(RenderType.entityTranslucent(WHITE));
+    float[] tc = themeColor(theme);
+    float er = tc[0] * 0.95f, eg = tc[1] * 0.95f, eb = tc[2] * 0.95f;
+    var ms =
+        new dev.qb2.rendering.animation.MorphState.Snapshot(
+            0.22f,
+            speakingPreview ? 0.88f : 0.25f,
+            0f,
+            0f,
+            0f,
+            0f,
+            1.0f,
+            1.0f,
+            speakingPreview
+                ? dev.qb2.rendering.animation.MorphState.EyeMood.VOICE_WAVE
+                : dev.qb2.rendering.animation.MorphState.EyeMood.NEUTRAL_BLINK);
+    poses.pushPose();
+    poses.mulPose(Axis.XP.rotationDegrees(pitchDeg));
+    poses.mulPose(Axis.YP.rotationDegrees(yawDeg));
+    renderNeoFluidBody(
+        poses,
+        v,
+        time,
+        0.0,
+        false,
+        false,
+        ms,
+        "antenna",
+        skin,
+        false,
+        0.95f,
+        er,
+        eg,
+        eb,
+        0.90f,
+        0.97f,
+        1.0f);
+    buffers.endBatch(RenderType.entityTranslucent(WHITE));
+    poses.popPose();
+  }
+
   private static void renderNeoFluidBody(
       PoseStack poses,
       VertexConsumer v,
@@ -566,6 +694,8 @@ public final class CompanionRenderer {
       boolean thinking,
       dev.qb2.rendering.animation.MorphState.Snapshot ms,
       String hat,
+      String skin,
+      boolean juggleOrHelix,
       float intensity,
       float er,
       float eg,
@@ -577,6 +707,8 @@ public final class CompanionRenderer {
     float blob = ms.blobMorph();
     float aero = ms.aeroDelta();
     float sleep = ms.mochiSleep();
+    float[] sc = skinChassisColor(skin);
+    float skinAlpha = sc[3];
 
     // 1. Retractable inner dark chassis + Dual counter-rotating Gyro-Plasma Core
     float coreHalf = 0.088f - open * 0.032f - blob * 0.020f + sleep * 0.018f;
@@ -589,22 +721,33 @@ public final class CompanionRenderer {
         coreHalf,
         coreHalf,
         coreHalf,
-        0.026f + er * 0.08f,
-        0.036f + eg * 0.08f,
-        0.052f + eb * 0.08f,
-        1f);
+        Math.min(1f, sc[0] + er * 0.08f),
+        Math.min(1f, sc[1] + eg * 0.08f),
+        Math.min(1f, sc[2] + eb * 0.08f),
+        skinAlpha);
 
-    if (!napping && (open > 0.04f || blob > 0.12f)) {
+    if (!napping && (open > 0.04f || blob > 0.12f || skinAlpha < 0.9f)) {
       renderInnerGyroCore(poses, v, time, open, blob, er, eg, eb);
     }
 
     // 2. Six magnetically floating split-shell plates + 3-tier voxel-sphere blob domes
     float frontOutermostZ =
         renderMagneticSplitShell(
-            poses, v, time, open, blob, aero, sleep, ms.springLagZ(), ms.springLagY(), er, eg, eb);
+            poses,
+            v,
+            time,
+            open,
+            blob,
+            aero,
+            sleep,
+            ms.springLagZ(),
+            ms.springLagY(),
+            sc,
+            er,
+            eg,
+            eb);
 
-    // 3. Classic cube energy frame only when in compact cube/sleep state; retracts when morphing into
-    //    an open Tesseract or rounded Fluid-Blob so Cubey breaks free of the rigid cube cage!
+    // 3. Classic cube energy frame only when in compact cube/sleep state; retracts when morphing
     float cageVisibility = Math.clamp(1.0f - open * 1.6f - blob * 1.5f, 0.0f, 1.0f);
     if (cageVisibility > 0.05f) {
       float edgeSpan = 0.116f - sleep * 0.004f;
@@ -620,8 +763,8 @@ public final class CompanionRenderer {
           1.0f);
     }
 
-    // 4. Eight morphing corner shards (retract to round corners in Blob mode; detach & orbit in Tesseract)
-    renderCornerPods(poses, v, time, sleepBreath, napping, thinking, ms, er, eg, eb);
+    // 4. Eight morphing corner shards
+    renderCornerPods(poses, v, time, sleepBreath, napping, thinking, ms, juggleOrHelix, er, eg, eb);
 
     // 5. Articulated flank winglets + 3-node aerodynamic ion trail
     renderSideWinglets(poses, v, time, napping, ms, er, eg, eb);
@@ -694,6 +837,7 @@ public final class CompanionRenderer {
       float sleep,
       float lagZ,
       float lagY,
+      float[] sc,
       float er,
       float eg,
       float eb) {
@@ -701,9 +845,9 @@ public final class CompanionRenderer {
     float baseDist = 0.096f + open * 0.036f - blob * 0.010f - sleep * 0.004f;
     float thick = 0.016f;
 
-    float pr = 0.034f + er * 0.09f;
-    float pg = 0.044f + eg * 0.09f;
-    float pb = 0.062f + eb * 0.09f;
+    float pr = Math.min(1f, sc[0] * 1.15f + er * 0.09f);
+    float pg = Math.min(1f, sc[1] * 1.15f + eg * 0.09f);
+    float pb = Math.min(1f, sc[2] * 1.15f + eb * 0.09f);
 
     // Harmonic liquid waves for each face in Blob mode (front wave stays non-negative so it never
     // dips behind the front corner shards!)
@@ -943,6 +1087,7 @@ public final class CompanionRenderer {
       boolean napping,
       boolean thinking,
       dev.qb2.rendering.animation.MorphState.Snapshot ms,
+      boolean juggleOrHelix,
       float er,
       float eg,
       float eb) {
@@ -1013,14 +1158,16 @@ public final class CompanionRenderer {
       }
     }
 
-    // In Blob mode, spawn 4 tiny orbiting ferrofluid satellite droplets framing the sides/halo
-    // (kept behind the front visor plane so they never obscure the eyes!)
-    if (blob > 0.45f && !napping) {
-      float dropSize = 0.012f * blob;
+    // In Blob mode or Juggle/Magic-Helix fidget, orbit 4 glowing droplets around Cubey!
+    if ((blob > 0.45f || juggleOrHelix) && !napping) {
+      float dropSize = 0.012f * Math.max(blob, 0.85f);
       for (int i = 0; i < 4; i++) {
-        double ang = time * 3.6 + i * (Math.PI / 2.0);
-        float dx = (float) (Math.cos(ang) * 0.152);
-        float dy = (float) (Math.sin(ang) * 0.142);
+        double ang = time * (juggleOrHelix ? 6.2 : 3.6) + i * (Math.PI / 2.0);
+        float dx = (float) (Math.cos(ang) * (juggleOrHelix ? 0.115 : 0.152));
+        float dy =
+            juggleOrHelix
+                ? (float) (0.165 + Math.abs(Math.sin(ang * 1.5)) * 0.095)
+                : (float) (Math.sin(ang) * 0.142);
         float dz = (float) (-0.015 + Math.sin(ang * 2.0) * 0.055);
         box(
             p,
