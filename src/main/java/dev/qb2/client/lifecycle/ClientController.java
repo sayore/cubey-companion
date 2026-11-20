@@ -340,8 +340,10 @@ public final class ClientController {
     }
     Point currentPosition = dev.qb2.perception.world.WorldSensor.point(player.position());
     if (lastPlayerPosition != null && lastPlayerPosition.distance(currentPosition) > 96) {
+      var prevChat = session.chat;
       reset();
       session = new CompanionSession();
+      session.chat.copyFrom(prevChat);
     }
     lastPlayerPosition = currentPosition;
     var s = configuration.settings();

@@ -152,9 +152,10 @@ public record InferenceSnapshot(
     }
     var recentChat = session.chat.snapshot();
     if (!recentChat.isEmpty()) {
+      int limit = direct ? 14 : 3;
       context.put(
           "chat",
-          recentChat.subList(Math.max(0, recentChat.size() - (direct ? 5 : 2)), recentChat.size()));
+          recentChat.subList(Math.max(0, recentChat.size() - limit), recentChat.size()));
     }
     if (!session.recentThoughts.isEmpty()) {
       var rt = List.copyOf(session.recentThoughts);

@@ -20,6 +20,13 @@ public final class ChatHistory {
     while (lines.size() > 20) lines.removeFirst();
   }
 
+  public void copyFrom(ChatHistory other) {
+    if (other == null) return;
+    lines.clear();
+    lines.addAll(other.lines);
+    while (lines.size() > 20) lines.removeFirst();
+  }
+
   public List<Line> snapshot() {
     return List.copyOf(lines);
   }
