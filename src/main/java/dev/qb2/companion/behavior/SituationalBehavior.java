@@ -117,9 +117,11 @@ public final class SituationalBehavior {
     if (player.swinging) {
       if (isWeapon(player.getMainHandItem())) {
         combatTicks = Math.max(combatTicks, 120);
-      } else if (workClearanceTicks < 50) {
-        workClearanceTicks = 65;
+      } else if (workClearanceTicks < 90) {
+        workClearanceTicks = 105;
       }
+    } else if (isMiningTool(player.getMainHandItem()) && (darkMode || player.getY() < 58)) {
+      workClearanceTicks = Math.max(workClearanceTicks, 40);
     }
     if (player.hurtTime > 0) {
       combatTicks = Math.max(combatTicks, 140);
@@ -131,7 +133,9 @@ public final class SituationalBehavior {
       if (!perchedEntity.isAlive()
           || perchedEntity.distanceTo(player) > 14.0
           || player.hurtTime > 0
-          || threatTicks > 0) {
+          || threatTicks > 0
+          || combatTicks > 0
+          || workClearanceTicks > 0) {
         perchedEntity = null;
       } else {
         var box = perchedEntity.getBoundingBox();
@@ -349,8 +353,12 @@ public final class SituationalBehavior {
         }
         if (seenDropIds.size() > 64) seenDropIds.clear();
 
-        // 16. Pet & Villager playing / riding (< 5.5 blocks)
-        if (perchedEntity == null && specialGoalOverride == null && !wingmanMode) {
+        // 16. Pet & Villager playing / riding (< 5.5 blocks) - disabled during combat/mining
+        if (perchedEntity == null
+            && specialGoalOverride == null
+            && !wingmanMode
+            && combatTicks == 0
+            && workClearanceTicks == 0) {
           var friends =
               level.getEntities(
                   player,
@@ -448,6 +456,22 @@ public final class SituationalBehavior {
     activeHat = resolveHat(player, perched);
   }
 
+  public static boolean isMiningTool(net.minecraft.world.item.ItemStack stack) {
+    if (stack == null || stack.isEmpty()) return false;
+    var item = stack.getItem();
+    if (item instanceof PickaxeItem
+        || item instanceof net.minecraft.world.item.ShovelItem
+        || item instanceof net.minecraft.world.item.HoeItem) return true;
+    String id = BuiltInRegistries.ITEM.getKey(item).getPath();
+    return id.contains("pickaxe")
+        || id.contains("drill")
+        || id.contains("paxel")
+        || id.contains("hammer")
+        || id.contains("excavator")
+        || id.contains("mattock")
+        || id.contains("shovel");
+  }
+
   public static boolean isWeapon(net.minecraft.world.item.ItemStack stack) {
     if (stack == null || stack.isEmpty()) return false;
     var item = stack.getItem();
@@ -539,7 +563,7 @@ public final class SituationalBehavior {
     if (social.isActive()) {
       String bubble = social.consumePendingBubble();
       if (!bubble.isBlank() && bubbles != null) {
-        bubbles.speech(bubble, tick);
+        bubbles.emote(bubble, tick);
       }
       if (social.consumeTriggerSound()) {
         triggerGreetingSound = true;

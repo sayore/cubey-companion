@@ -501,10 +501,11 @@ public final class ClientController {
       return;
     }
     // 0b. Left-click directly on Cubey -> Grab him into your gravity hold (disabled during combat
-    //     or while holding a weapon so sword swings NEVER accidentally grab Cubey!).
+    //     or while holding a weapon/mining tool so swings NEVER accidentally grab Cubey!).
     if (event.isAttack()
         && session.situational.combatTicks == 0
         && !dev.qb2.companion.behavior.SituationalBehavior.isWeapon(mc.player.getMainHandItem())
+        && !dev.qb2.companion.behavior.SituationalBehavior.isMiningTool(mc.player.getMainHandItem())
         && clickedOnCompanion()) {
       event.setCanceled(true);
       event.setSwingHand(false);
@@ -533,7 +534,7 @@ public final class ClientController {
         session.wakeUp();
         session.situational.celebrateTicks = 30;
         session.situational.greetingTicks = 25;
-        session.bubbles.thought("♥", session.tick);
+        session.bubbles.emote("♥", session.tick);
         audio.play(
             mc,
             configuration.settings(),
@@ -818,7 +819,7 @@ public final class ClientController {
               label,
               pt,
               dim));
-      session.bubbles.speech("📍 Gemerkt: " + targetName + "!", session.tick);
+      session.bubbles.emote("📍 " + targetName, session.tick);
       audio.play(
           mc,
           configuration.settings(),

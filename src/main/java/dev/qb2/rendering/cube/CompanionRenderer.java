@@ -37,18 +37,21 @@ public final class CompanionRenderer {
     Point position = session.motion.interpolate(partial);
     var sit = session.situational;
     Point look =
-        session.guideDestination != null
-            ? session.guideDestination
-            : sit.focusLookOverride != null
-                ? sit.focusLookOverride
-                : "Napping".equals(session.state) && session.perchLook != null
-                    ? session.perchLook
-                    : session.attention.target() == null
-                            || session.bubbles.speaking(session.tick)
-                            || sit.greetingTicks > 0
-                            || sit.concernTicks > 0
-                        ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
-                        : session.attention.target().position();
+        session.grabThrow.isGrabbed()
+            ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
+            : session.guideDestination != null
+                ? session.guideDestination
+                : sit.focusLookOverride != null
+                    ? sit.focusLookOverride
+                    : "Napping".equals(session.state) && session.perchLook != null
+                        ? session.perchLook
+                        : session.attention.target() == null
+                                || session.bubbles.speaking(session.tick)
+                                || session.bubbles.emoting(session.tick)
+                                || sit.greetingTicks > 0
+                                || sit.concernTicks > 0
+                            ? new Point(mc.player.getX(), mc.player.getEyeY(), mc.player.getZ())
+                            : session.attention.target().position();
     Point direction = look.subtract(position);
     float targetYaw = (float) Math.toDegrees(Math.atan2(direction.x(), direction.z()));
     double time = (session.tick + partial) * 0.05;
@@ -62,10 +65,13 @@ public final class CompanionRenderer {
     var camera = event.getCamera().getPosition();
     boolean napping = session.isSleeping();
     double sleepBreath = Math.sin(time * 0.72);
+    boolean emoting = !napping && session.bubbles.emoting(session.tick);
+    double emoteHop = emoting ? Math.abs(Math.sin(time * 9.0)) * 0.075 : 0.0;
     double bob =
         napping
             ? -0.014
             : sit.socialBob
+                + emoteHop
                 + (sit.fishingBiteHop
                     ? Math.abs(Math.sin(time * 12.0)) * 0.16
                     : sit.dancing
@@ -168,6 +174,7 @@ public final class CompanionRenderer {
             || sit.dancing
             || sit.petPlayTicks > 0
             || sit.social.isActive()
+            || emoting
             || (grabbed && !chargingThrow);
     boolean threatOrAiming =
         sit.threatTicks > 0
@@ -237,19 +244,22 @@ public final class CompanionRenderer {
       er = sit.warmGlow ? intensity * 0.42f : intensity * 0.14f;
       eg = sit.warmGlow ? intensity * 0.46f : intensity * 0.34f;
       eb = sit.warmGlow ? intensity * 0.68f : intensity * 0.72f;
-    } else if (sit.sunsetGlow) {
-      er = intensity * 0.96f;
-      eg = intensity * 0.58f;
-      eb = intensity * 0.72f;
-    } else if (sit.warmGlow) {
-      er = intensity * 0.55f;
-      eg = intensity * 0.78f;
-      eb = intensity * 0.92f;
     } else {
       float[] tc = themeColor(settings.cubeyTheme);
-      er = intensity * tc[0];
-      eg = intensity * tc[1];
-      eb = intensity * tc[2];
+      float tr = tc[0], tg = tc[1], tb = tc[2];
+      // Softly tint (22%) chosen theme color during sunset or near campfires instead of overwriting it!
+      if (sit.sunsetGlow) {
+        tr = tr * 0.78f + 0.96f * 0.22f;
+        tg = tg * 0.78f + 0.58f * 0.22f;
+        tb = tb * 0.78f + 0.72f * 0.22f;
+      } else if (sit.warmGlow) {
+        tr = tr * 0.80f + 0.95f * 0.20f;
+        tg = tg * 0.80f + 0.72f * 0.20f;
+        tb = tb * 0.80f + 0.45f * 0.20f;
+      }
+      er = intensity * tr;
+      eg = intensity * tg;
+      eb = intensity * tb;
     }
 
     poses.scale(ms.stretchXZ(), ms.squashY(), ms.stretchXZ() + ms.aeroDelta() * 0.14f);

@@ -396,5 +396,15 @@ final class ToolCallingAndPriorityQueueTest {
             new dev.qb2.companion.movement.Point(16, 65.35, 0),
             new dev.qb2.companion.movement.Point(21, 65.35, 0));
     assertTrue(wp.x() >= 17.5, "Expected forward waypoint >= 17.5 but got " + wp.x());
+
+    // 13. Bubbles.emote never triggers speaking/VOICE_WAVE; speech active talking stops before bubble fades
+    var bub = new dev.qb2.rendering.bubbles.Bubbles();
+    bub.emote("*boop* ♥", 100L);
+    assertTrue(bub.emoting(110L));
+    assertFalse(bub.speaking(110L));
+    bub.speech("Hello!", 200L);
+    assertTrue(bub.speaking(210L));
+    assertFalse(bub.speaking(275L)); // finished vocalizing, even while bubble stays readable
+    assertNotNull(bub.visible(275L, true, true));
   }
 }

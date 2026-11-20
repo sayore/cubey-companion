@@ -41,10 +41,9 @@ public final class BubbleRenderer {
         settings.companionName == null || settings.companionName.isBlank()
             ? "Cubey"
             : settings.companionName;
+    String prefix = bubble.emote() ? "" : bubble.thought() ? "◦ " : (name + ": ");
     var lines =
-        new ArrayList<>(
-            mc.font.split(
-                Component.literal((bubble.thought() ? "◦ " : name + ": ") + bubble.text()), 135));
+        new ArrayList<>(mc.font.split(Component.literal(prefix + bubble.text()), 135));
     if (lines.size() > 3) {
       lines.subList(3, lines.size()).clear();
       lines.set(2, Component.literal("…").getVisualOrderText());

@@ -279,10 +279,11 @@ public final class CompanionSession {
     Vec3 side = forward.cross(new Vec3(0, 1, 0)).normalize();
     boolean inCombat = situational.combatTicks > 0;
     boolean working = situational.workClearanceTicks > 0;
-    // During combat, pull high & behind the player's shoulder so Cubey NEVER blocks a sword swing!
-    double homeHeight = inCombat ? 2.45 : working ? 2.05 : situational.sneaking ? 1.05 : 1.55;
-    double forwardOffset = inCombat ? -1.75 : working ? 1.15 : 2.05;
-    double sideOffset = inCombat ? 1.95 : working ? 1.75 : 0.95;
+    // During combat OR mining/working, pull cleanly BEHIND the player's shoulder so Cubey NEVER
+    // blocks a sword swing, pickaxe strike, or emergency retreat from lava!
+    double homeHeight = inCombat ? 2.45 : working ? 1.65 : situational.sneaking ? 1.05 : 1.55;
+    double forwardOffset = inCombat ? -1.75 : working ? -1.45 : 2.05;
+    double sideOffset = inCombat ? 1.95 : working ? 1.15 : 0.95;
     Point home =
         WorldSensor.point(
             mc.player
@@ -319,15 +320,22 @@ public final class CompanionSession {
       calmAreaSinceTick = tick;
     }
     // Auto-perch when explicitly resting OR after 45s (900 ticks) of quiet local factory work.
+    boolean busyActivity =
+        inCombat
+            || working
+            || grabThrow.isGrabbed()
+            || grabThrow.isThrown()
+            || situational.social.isActive()
+            || guideDestination != null;
     boolean calmFactoryNap =
         tick - calmAreaSinceTick >= 900
             && tick - lastSpeech >= 700
             && !thinking
             && !situational.wingmanMode
-            && guideDestination == null
+            && !busyActivity
             && tick % 100 == 0
             && player.distance(motion.position()) < settings.exploreRadius;
-    if (!perched && ("rest".equals(action) || calmFactoryNap)) {
+    if (!perched && !busyActivity && ("rest".equals(action) || calmFactoryNap)) {
       var spot = findPerchSpot(mc, motion.position());
       if (spot != null) perchAt(spot);
     }
@@ -354,6 +362,9 @@ public final class CompanionSession {
                   new AABB(v.x - .17, v.y - .17, v.z - .17, v.x + .17, v.y + .17, v.z + .17));
         };
     var target = actionTarget != null ? actionTarget : attention.target();
+    if (inCombat || working || guideDestination != null || actionTarget != null || grabThrow.isGrabbed() || grabThrow.isThrown()) {
+      situational.perchedEntity = null;
+    }
     if (grabThrow.isGrabbed()) {
       boolean lmbDown = mc.screen == null && mc.options.keyAttack.isDown();
       boolean rmbDown = mc.screen == null && mc.options.keyUse.isDown();
@@ -366,17 +377,14 @@ public final class CompanionSession {
         Point smoothed = motion.position().lerp(safeHold, 0.55);
         motion.stepDirect(smoothed);
         flightGoal = safeHold;
-        flightMode = grabThrow.isCharging() ? "Wingman" : "Curious";
-        state = grabThrow.isCharging() ? "Wingman" : "Curious";
-        if (grabThrow.isCharging()) {
-          bubbles.thought(GrabThrowPhysics.formatChargeBar(grabThrow.chargeRatio()), tick);
-        }
+        flightMode = "Curious";
+        state = "Curious";
       } else if (grabThrow.isThrown()) {
         // Just launched!
         situational.barrelRollTicks = 28;
         pendingWeeeeSound = true;
         String yeetText = grabThrow.lastLaunchCharge() >= 0.78f ? "YEET!! ✦" : "Weeeee! ✦";
-        bubbles.speech(yeetText, tick);
+        bubbles.emote(yeetText, tick);
         pendingSyncSpeech = yeetText;
         flightMode = "Wingman";
         state = "Wingman";
@@ -394,7 +402,7 @@ public final class CompanionSession {
       state = "Wingman";
       if (grabThrow.consumeJustBounced()) {
         pendingBoingSound = true;
-        bubbles.thought("*boing*", tick);
+        bubbles.emote("*boing*", tick);
       }
       // Multiplayer "Fang mich!" (Catch!): if thrown Cubey flies close to another player or peer Cubey!
       if (grabThrow.isThrown() && settings.multiplayerSync) {
@@ -420,7 +428,7 @@ public final class CompanionSession {
           situational.triggerCelebrateSound = true;
           situational.focusLookOverride = catchTarget;
           String catchText = "✦ Fang! ♥";
-          bubbles.speech(catchText, tick);
+          bubbles.emote(catchText, tick);
           pendingSyncSpeech = catchText;
         }
       }
@@ -490,6 +498,7 @@ public final class CompanionSession {
     } else {
       String effectiveAction =
           inCombat
+                  || working
                   || mc.player.isSprinting()
                   || situational.wantForwardFov
                   || bubbles.speaking(tick)
@@ -514,7 +523,11 @@ public final class CompanionSession {
           cubeDist >= 1.15
               && cubeDist <= settings.exploreRadius
               && mc.player.getLookAngle().normalize().dot(toCubeVec.normalize()) > 0.76;
-      if (playerLookingAtCube && !mc.player.isSprinting() && !situational.wingmanMode && !inCombat) {
+      if (playerLookingAtCube
+          && !mc.player.isSprinting()
+          && !situational.wingmanMode
+          && !inCombat
+          && !working) {
         desired = motion.position();
       }
       // Prevent clipping into the player's body or camera: keep >= 1.25 blocks horizontal clearance.
