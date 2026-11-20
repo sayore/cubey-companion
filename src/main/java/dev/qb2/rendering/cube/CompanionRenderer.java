@@ -246,9 +246,10 @@ public final class CompanionRenderer {
       eg = intensity * 0.78f;
       eb = intensity * 0.92f;
     } else {
-      er = intensity * 0.22f;
-      eg = intensity * 0.68f;
-      eb = intensity;
+      float[] tc = themeColor(settings.cubeyTheme);
+      er = intensity * tc[0];
+      eg = intensity * tc[1];
+      eb = intensity * tc[2];
     }
 
     poses.scale(ms.stretchXZ(), ms.squashY(), ms.stretchXZ() + ms.aeroDelta() * 0.14f);
@@ -279,6 +280,9 @@ public final class CompanionRenderer {
         sb);
     buffers.endBatch(type);
     poses.popPose();
+    if (session.guideDestination != null) {
+      renderChestHighlight(buffers, camera, session.guideDestination, time, intensity);
+    }
     if (settings.showTargetBeam) {
       if (session.guideDestination != null) {
         renderTargetBeam(buffers, camera, position, session.guideDestination, intensity);
@@ -291,7 +295,7 @@ public final class CompanionRenderer {
     }
     bubbles.render(event, session, settings, position);
     if (settings.multiplayerSync) {
-      renderPeerCubeys(event, mc, buffers, camera, session, settings, time, partial);
+      renderPeerCubeys(event, mc, buffers, camera, session, settings, time, dt, now);
     }
   }
 
@@ -303,13 +307,15 @@ public final class CompanionRenderer {
       CompanionSession session,
       Settings settings,
       double time,
-      float partial) {
+      double dt,
+      long nowNanos) {
     var peers = session.peers.activePeers();
     if (peers.isEmpty()) return;
     double sleepBreath = Math.sin(time * 0.72);
     float intensity = (float) (0.45 + settings.glow * 0.82 * 0.55);
     for (var peer : peers) {
-      Point pPos = peer.interpolatePos(partial);
+      peer.stepRender(dt, nowNanos);
+      Point pPos = peer.renderPos;
       boolean pNap = "Napping".equals(peer.state);
       boolean pThink = "Thinking".equals(peer.state);
       boolean pSpeak = "Speaking".equals(peer.state);
@@ -318,18 +324,19 @@ public final class CompanionRenderer {
       PoseStack poses = new PoseStack();
       poses.pushPose();
       poses.translate(pPos.x() - camera.x, pPos.y() - camera.y + bob, pPos.z() - camera.z);
-      poses.mulPose(Axis.YP.rotationDegrees(peer.interpolateYaw(partial)));
-      poses.mulPose(Axis.ZP.rotationDegrees(pNap ? 0f : peer.roll));
-      poses.mulPose(Axis.XP.rotationDegrees(pNap ? 14f : peer.pitch));
+      poses.mulPose(Axis.YP.rotationDegrees(peer.renderYaw));
+      poses.mulPose(Axis.ZP.rotationDegrees(pNap ? 0f : peer.renderRoll));
+      poses.mulPose(Axis.XP.rotationDegrees(pNap ? 14f : peer.renderPitch));
       if (pNap) {
         float bx = (float) (1.0 + sleepBreath * 0.016);
         float by = (float) (1.0 - sleepBreath * 0.012);
         poses.scale(bx, by, bx);
       }
       var v = buffers.getBuffer(type);
-      float er = pThink ? intensity : pSpeak ? intensity * 0.65f : pNap ? intensity * 0.14f : intensity * 0.22f;
-      float eg = pThink ? intensity * 0.54f : pSpeak ? intensity * 0.96f : pNap ? intensity * 0.34f : intensity * 0.68f;
-      float eb = pThink ? intensity * 0.10f : pSpeak ? intensity : pNap ? intensity * 0.72f : intensity;
+      float[] ptc = themeColor(peer.theme);
+      float er = pThink ? intensity : pSpeak ? intensity * 0.65f : pNap ? intensity * 0.14f : intensity * ptc[0];
+      float eg = pThink ? intensity * 0.54f : pSpeak ? intensity * 0.96f : pNap ? intensity * 0.34f : intensity * ptc[1];
+      float eb = pThink ? intensity * 0.10f : pSpeak ? intensity : pNap ? intensity * 0.72f : intensity * ptc[2];
       boolean pWingman = "Wingman".equals(peer.state);
       boolean pCurious = "Curious".equals(peer.state) || "Guiding".equals(peer.state);
       var peerMs =
@@ -372,11 +379,13 @@ public final class CompanionRenderer {
       buffers.endBatch(type);
       poses.popPose();
 
-      // Render peer nametag / shared speech above the remote Cubey
+      // Render peer custom Cubey name / shared speech above the remote Cubey
+      String cName =
+          peer.cubeyName == null || peer.cubeyName.isBlank() ? "Cubey" : peer.cubeyName;
       String label =
           (peer.speechUntilTick > session.tick && !peer.speech.isBlank())
-              ? peer.ownerName + "'s QB2: " + peer.speech
-              : peer.ownerName + "'s QB2";
+              ? cName + ": " + peer.speech
+              : cName + " (" + peer.ownerName + ")";
       double dist = pPos.distance(new Point(camera.x, camera.y, camera.z));
       if (dist >= 0.5 && dist <= 32.0) {
         PoseStack tagPose = new PoseStack();
@@ -399,6 +408,54 @@ public final class CompanionRenderer {
         buffers.endBatch();
       }
     }
+  }
+
+  private static float[] themeColor(String theme) {
+    if (theme == null) return new float[] {0.22f, 0.68f, 1.0f};
+    return switch (theme) {
+      case "sakura" -> new float[] {1.0f, 0.50f, 0.78f};
+      case "amethyst" -> new float[] {0.72f, 0.40f, 1.0f};
+      case "solar" -> new float[] {1.0f, 0.80f, 0.24f};
+      case "emerald" -> new float[] {0.24f, 0.94f, 0.58f};
+      case "frost" -> new float[] {0.82f, 0.95f, 1.0f};
+      default -> new float[] {0.22f, 0.68f, 1.0f};
+    };
+  }
+
+  /** Pulsing 3D double-layer highlight frame around a guided chest / waypoint / death spot. */
+  private void renderChestHighlight(
+      MultiBufferSource.BufferSource buffers,
+      net.minecraft.world.phys.Vec3 camera,
+      Point target,
+      double time,
+      float intensity) {
+    double dist = target.distance(new Point(camera.x, camera.y, camera.z));
+    if (dist > 28.0) return;
+    double pulse = 0.04 + 0.025 * Math.sin(time * 5.0);
+    double bx = Math.floor(target.x()) - camera.x;
+    double by = Math.floor(target.y()) - camera.y;
+    double bz = Math.floor(target.z()) - camera.z;
+    PoseStack p = new PoseStack();
+    p.pushPose();
+    var lineBuf = buffers.getBuffer(RenderType.lines());
+    float r = 0.35f * intensity, g = 0.96f * intensity, b = 1.0f * intensity;
+    LevelRenderer.renderLineBox(
+        p, lineBuf, bx - 0.02, by - 0.02, bz - 0.02, bx + 1.02, by + 1.02, bz + 1.02, r, g, b, 0.90f);
+    LevelRenderer.renderLineBox(
+        p,
+        lineBuf,
+        bx - pulse,
+        by - pulse,
+        bz - pulse,
+        bx + 1.0 + pulse,
+        by + 1.0 + pulse,
+        bz + 1.0 + pulse,
+        1.0f * intensity,
+        0.85f * intensity,
+        0.30f * intensity,
+        0.55f);
+    buffers.endBatch(RenderType.lines());
+    p.popPose();
   }
 
   private void renderTargetBeam(

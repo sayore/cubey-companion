@@ -4,8 +4,9 @@ import dev.qb2.companion.movement.Point;
 import java.util.*;
 
 /**
- * Tracks and interpolates up to 16 nearby remote players' Cubey companions on the client. Remote
- * speech is strictly visual and never enters the local LLM prompt.
+ * Tracks and smoothly interpolates up to 16 nearby remote players' Cubey companions on the client.
+ * Uses continuous frame-time exponential smoothing + velocity dead-reckoning instead of 1-tick
+ * partial-tick snapping so 10-20 Hz network updates glide at 60-240 FPS without stutter!
  */
 public final class RemoteCompanionTracker {
   public static final int MAX_PEERS = 16;
@@ -14,33 +15,52 @@ public final class RemoteCompanionTracker {
   public static final class PeerCubey {
     public final UUID ownerId;
     public final String ownerName;
-    public Point prevPos;
     public Point pos;
-    public float prevYaw, yaw, pitch, roll;
+    public Point velocity = Point.ZERO;
+    public Point renderPos;
+    public float yaw, pitch, roll;
+    public float renderYaw, renderPitch, renderRoll;
+    public long lastPacketNanos;
     public String state = "Idle";
     public String hat = "antenna";
+    public String theme = "neo_cyan";
+    public String cubeyName = "Cubey";
     public String speech = "";
     public long speechUntilTick;
     public long lastUpdateTick;
 
-    PeerCubey(UUID ownerId, String ownerName, Point initialPos, float yaw) {
+    PeerCubey(UUID ownerId, String ownerName, Point initialPos, float yaw, long nowNanos) {
       this.ownerId = ownerId;
       this.ownerName = ownerName;
-      this.prevPos = initialPos;
       this.pos = initialPos;
-      this.prevYaw = yaw;
+      this.renderPos = initialPos;
       this.yaw = yaw;
+      this.renderYaw = yaw;
+      this.lastPacketNanos = nowNanos;
     }
 
-    public Point interpolatePos(float partial) {
-      return prevPos.lerp(pos, Math.clamp(partial, 0f, 1f));
-    }
-
-    public float interpolateYaw(float partial) {
-      float delta = (yaw - prevYaw) % 360f;
-      if (delta > 180f) delta -= 360f;
-      if (delta < -180f) delta += 360f;
-      return prevYaw + delta * Math.clamp(partial, 0f, 1f);
+    /**
+     * Advances continuous frame-rate-independent exponential smoothing + gentle velocity
+     * dead-reckoning so movement stays silky smooth between network packets.
+     */
+    public void stepRender(double dt, long nowNanos) {
+      double clampedDt = Math.clamp(dt, 0.0005, 0.1);
+      double ageSec = Math.clamp((nowNanos - lastPacketNanos) / 1e9, 0.0, 0.14);
+      Point extrapolated = pos.add(velocity.scale(ageSec));
+      // Snap only on huge teleports (> 8 blocks), otherwise smooth exponentially!
+      if (renderPos.distance(extrapolated) > 8.0) {
+        renderPos = extrapolated;
+      } else {
+        double alpha = 1.0 - Math.exp(-clampedDt * 14.0);
+        renderPos = renderPos.lerp(extrapolated, alpha);
+      }
+      float rotAlpha = (float) (1.0 - Math.exp(-clampedDt * 15.0));
+      float dyaw = (yaw - renderYaw) % 360f;
+      if (dyaw > 180f) dyaw -= 360f;
+      if (dyaw < -180f) dyaw += 360f;
+      renderYaw += dyaw * rotAlpha;
+      renderPitch += (pitch - renderPitch) * rotAlpha;
+      renderRoll += (roll - renderRoll) * rotAlpha;
     }
   }
 
@@ -54,10 +74,11 @@ public final class RemoteCompanionTracker {
       float pitch,
       float roll,
       String state,
-      String hat,
+      String hatAndMeta,
       String publicSpeech,
       long clientTick) {
     if (ownerId == null || position == null) return;
+    long nowNanos = System.nanoTime();
     String safeName =
         ownerName == null || ownerName.isBlank()
             ? "Player"
@@ -67,18 +88,26 @@ public final class RemoteCompanionTracker {
       if (peers.size() >= MAX_PEERS) {
         peers.remove(peers.keySet().iterator().next());
       }
-      peer = new PeerCubey(ownerId, safeName, position, yaw);
+      peer = new PeerCubey(ownerId, safeName, position, yaw, nowNanos);
       peers.put(ownerId, peer);
     } else {
-      peer.prevPos = peer.pos;
+      double packetDt = Math.clamp((nowNanos - peer.lastPacketNanos) / 1e9, 0.025, 0.35);
+      Point rawVel = position.subtract(peer.pos).scale(1.0 / packetDt);
+      // Cap extrapolated speed to prevent wild overshoot on packet bursts
+      if (rawVel.length() > 18.0) rawVel = rawVel.unit().scale(18.0);
+      peer.velocity = peer.velocity.lerp(rawVel, 0.55);
       peer.pos = position;
-      peer.prevYaw = peer.yaw;
       peer.yaw = yaw;
+      peer.lastPacketNanos = nowNanos;
     }
     peer.pitch = pitch;
     peer.roll = roll;
     peer.state = CubeySyncValidator.ALLOWED_STATES.contains(state) ? state : "Idle";
-    peer.hat = CubeySyncValidator.ALLOWED_HATS.contains(hat) ? hat : "antenna";
+    String safeMeta = CubeySyncValidator.sanitizeHatAndTheme(hatAndMeta);
+    String[] parts = safeMeta.split("\\|", -1);
+    peer.hat = parts.length >= 1 && !parts[0].isBlank() ? parts[0] : "antenna";
+    peer.theme = parts.length >= 2 && !parts[1].isBlank() ? parts[1] : "neo_cyan";
+    peer.cubeyName = parts.length >= 3 && !parts[2].isBlank() ? parts[2] : "Cubey";
     peer.lastUpdateTick = clientTick;
     String cleanSpeech = CubeySyncValidator.sanitizeSpeech(publicSpeech);
     if (!cleanSpeech.isBlank()) {
@@ -94,7 +123,8 @@ public final class RemoteCompanionTracker {
             p ->
                 clientTick - p.lastUpdateTick > EXPIRY_TICKS
                     || (localPlayerPos != null
-                        && p.pos.distance(localPlayerPos) > CubeySyncValidator.BROADCAST_RADIUS + 8.0));
+                        && p.pos.distance(localPlayerPos)
+                            > CubeySyncValidator.BROADCAST_RADIUS + 8.0));
   }
 
   public synchronized Optional<PeerCubey> nearestPeer(Point myCubePos, double maxDistance) {

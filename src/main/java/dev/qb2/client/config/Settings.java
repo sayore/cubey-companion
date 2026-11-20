@@ -20,6 +20,10 @@ public final class Settings {
   public boolean radialMenu = true;
   public boolean debug = false, paused = false, serverChat = false;
   public double glow = 0.85, bubbleOpacity = 0.8, soundVolume = 0.75;
+  public double voicePitch = 1.00, voiceTempo = 1.00, voiceVariance = 0.08;
+  public String voiceMode = "animalese";
+  public String cubeyTheme = "neo_cyan";
+  public String companionName = "Cubey";
   public String triggers = "@cube,@qb,qb2";
   public String style = "calm";
 
@@ -77,6 +81,12 @@ public final class Settings {
     c.glow = glow;
     c.bubbleOpacity = bubbleOpacity;
     c.soundVolume = soundVolume;
+    c.voicePitch = voicePitch;
+    c.voiceTempo = voiceTempo;
+    c.voiceVariance = voiceVariance;
+    c.voiceMode = voiceMode;
+    c.cubeyTheme = cubeyTheme;
+    c.companionName = companionName;
     c.triggers = triggers;
     c.style = style;
     return c;
@@ -95,6 +105,15 @@ public final class Settings {
     glow = finite(glow, 0, 1);
     bubbleOpacity = finite(bubbleOpacity, 0.1, 1);
     soundVolume = finite(soundVolume, 0, 1);
+    voicePitch = finite(voicePitch, 0.65, 1.55);
+    voiceTempo = finite(voiceTempo, 0.60, 1.60);
+    voiceVariance = finite(voiceVariance, 0.0, 0.25);
+    if (!java.util.Set.of("silent", "chirp", "animalese").contains(voiceMode))
+      voiceMode = "animalese";
+    if (!java.util.Set.of("neo_cyan", "sakura", "amethyst", "solar", "emerald", "frost")
+        .contains(cubeyTheme)) cubeyTheme = "neo_cyan";
+    companionName = dev.qb2.network.CubeySyncValidator.sanitizeName(companionName);
+    if (companionName.isBlank()) companionName = "Cubey";
     if (modelChain == null) modelChain = "";
     if (ambientModel == null) ambientModel = "";
     if (fallbackProvider == null) fallbackProvider = "";

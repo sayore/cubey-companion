@@ -231,12 +231,12 @@ final class ToolCallingAndPriorityQueueTest {
     assertEquals("Idle", unknownEnums.state());
     assertEquals("antenna", unknownEnums.hat());
 
-    // 4. Rate limiter blocks bursts under 80ms (80_000_000 ns)
+    // 4. Rate limiter blocks bursts under 45ms (45_000_000 ns)
     var validator = new dev.qb2.network.CubeySyncValidator();
     UUID playerA = UUID.randomUUID();
     assertTrue(validator.allowRate(playerA, 100_000_000L));
-    assertFalse(validator.allowRate(playerA, 150_000_000L));
-    assertTrue(validator.allowRate(playerA, 185_000_000L));
+    assertFalse(validator.allowRate(playerA, 120_000_000L));
+    assertTrue(validator.allowRate(playerA, 150_000_000L));
 
     // 5. RemoteCompanionTracker tracks, interpolates, and finds nearby peers for Cubey-to-Cubey nod
     var tracker = new dev.qb2.network.RemoteCompanionTracker();
@@ -342,5 +342,22 @@ final class ToolCallingAndPriorityQueueTest {
     assertEquals('A', (char) wav[9]);
     assertEquals('V', (char) wav[10]);
     assertEquals('E', (char) wav[11]);
+
+    // 10. Theme & Voice Studio validation + hat|theme|name multiplayer sync whitelisting
+    assertEquals(
+        "miner|sakura|Mina",
+        dev.qb2.network.CubeySyncValidator.sanitizeHatAndTheme("miner|sakura|Mina"));
+    assertEquals(
+        "miner|neo_cyan",
+        dev.qb2.network.CubeySyncValidator.sanitizeHatAndTheme("miner|evil_theme"));
+    var vs = new Settings();
+    vs.voiceMode = "animalese";
+    vs.voicePitch = 1.25;
+    vs.voiceTempo = 1.15;
+    vs.voiceVariance = 0.12;
+    vs.cubeyTheme = "amethyst";
+    vs.validate();
+    assertEquals("animalese", vs.voiceMode);
+    assertEquals("amethyst", vs.cubeyTheme);
   }
 }

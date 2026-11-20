@@ -14,7 +14,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public final class CubeySyncValidator {
   public static final double MAX_OWNER_DISTANCE = 24.0;
   public static final double BROADCAST_RADIUS = 48.0;
-  public static final long MIN_INTERVAL_NANOS = 80_000_000L; // ~12.5 Hz max
+  public static final long MIN_INTERVAL_NANOS = 45_000_000L; // ~22 Hz max for smooth sync
 
   public static final Set<String> ALLOWED_STATES =
       Set.of(
@@ -32,6 +32,9 @@ public final class CubeySyncValidator {
 
   public static final Set<String> ALLOWED_HATS =
       Set.of("none", "antenna", "crown", "miner", "rain", "sleep", "propeller", "chef");
+
+  public static final Set<String> ALLOWED_THEMES =
+      Set.of("neo_cyan", "sakura", "amethyst", "solar", "emerald", "frost");
 
   public record ValidatedTelemetry(
       double x,
@@ -75,8 +78,7 @@ public final class CubeySyncValidator {
 
     String state =
         rawState != null && ALLOWED_STATES.contains(rawState) ? rawState : "Idle";
-    String hat =
-        rawHat != null && ALLOWED_HATS.contains(rawHat) ? rawHat : "antenna";
+    String hat = sanitizeHatAndTheme(rawHat);
     String speech = sanitizeSpeech(rawSpeech);
 
     return new ValidatedTelemetry(
@@ -89,6 +91,24 @@ public final class CubeySyncValidator {
         state,
         hat,
         speech);
+  }
+
+  public static String sanitizeHatAndTheme(String raw) {
+    if (raw == null || raw.isBlank()) return "antenna";
+    String[] parts = raw.split("\\|", -1);
+    String safeHat = ALLOWED_HATS.contains(parts[0]) ? parts[0] : "antenna";
+    if (parts.length == 1) return safeHat;
+    String safeTheme = ALLOWED_THEMES.contains(parts[1]) ? parts[1] : "neo_cyan";
+    if (parts.length == 2) return safeHat + "|" + safeTheme;
+    String safeName = sanitizeName(parts[2]);
+    return safeName.isBlank() ? (safeHat + "|" + safeTheme) : (safeHat + "|" + safeTheme + "|" + safeName);
+  }
+
+  public static String sanitizeName(String raw) {
+    if (raw == null || raw.isBlank()) return "";
+    String clean =
+        raw.replace('§', ' ').replace('|', ' ').replaceAll("\\p{Cntrl}", "").trim();
+    return clean.length() > 20 ? clean.substring(0, 20) : clean;
   }
 
   public static String sanitizeSpeech(String raw) {

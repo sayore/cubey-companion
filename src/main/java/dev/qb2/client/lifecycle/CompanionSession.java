@@ -393,6 +393,34 @@ public final class CompanionSession {
         pendingBoingSound = true;
         bubbles.thought("*boing*", tick);
       }
+      // Multiplayer "Fang mich!" (Catch!): if thrown Cubey flies close to another player or peer Cubey!
+      if (grabThrow.isThrown() && settings.multiplayerSync) {
+        Point catchTarget = null;
+        var nearPeer = peers.nearestPeer(next, 2.4);
+        if (nearPeer.isPresent()) {
+          catchTarget = nearPeer.get().pos;
+        } else {
+          for (var other : mc.level.players()) {
+            if (other != mc.player && other.isAlive() && !other.isSpectator()) {
+              Point op = WorldSensor.point(other.getEyePosition());
+              if (op.distance(next) <= 2.4) {
+                catchTarget = op;
+                break;
+              }
+            }
+          }
+        }
+        if (catchTarget != null) {
+          grabThrow.release();
+          situational.celebrateTicks = 36;
+          situational.greetingTicks = 28;
+          situational.triggerCelebrateSound = true;
+          situational.focusLookOverride = catchTarget;
+          String catchText = "✦ Fang! ♥";
+          bubbles.speech(catchText, tick);
+          pendingSyncSpeech = catchText;
+        }
+      }
       if (!grabThrow.isThrown()) {
         action = "return";
         actionUntil = tick + 100;

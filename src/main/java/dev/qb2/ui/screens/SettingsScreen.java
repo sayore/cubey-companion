@@ -48,10 +48,16 @@ public final class SettingsScreen extends Screen {
           "style");
   private static final List<String> TAB_VISUALS =
       List.of(
+          "companionName",
+          "cubeyTheme",
+          "voiceMode",
+          "soundVolume",
+          "voicePitch",
+          "voiceTempo",
+          "voiceVariance",
+          "sounds",
           "thoughts",
           "speech",
-          "sounds",
-          "soundVolume",
           "particles",
           "showTargetBeam",
           "glow",
@@ -59,11 +65,18 @@ public final class SettingsScreen extends Screen {
           "fieldOfView",
           "debug");
 
+  private static final List<String> VOICE_MODES = List.of("animalese", "chirp", "silent");
+  private static final List<String> THEMES =
+      List.of("neo_cyan", "sakura", "amethyst", "solar", "emerald", "frost");
+
   private record SliderSpec(double min, double max, boolean integer, String suffix) {}
 
   private static final Map<String, SliderSpec> SLIDERS =
       Map.ofEntries(
           Map.entry("soundVolume", new SliderSpec(0.0, 1.0, false, "")),
+          Map.entry("voicePitch", new SliderSpec(0.65, 1.55, false, "x")),
+          Map.entry("voiceTempo", new SliderSpec(0.60, 1.60, false, "x")),
+          Map.entry("voiceVariance", new SliderSpec(0.0, 0.25, false, "")),
           Map.entry("glow", new SliderSpec(0.0, 1.0, false, "")),
           Map.entry("bubbleOpacity", new SliderSpec(0.1, 1.0, false, "")),
           Map.entry("exploreRadius", new SliderSpec(2.0, 20.0, false, " blk")),
@@ -108,8 +121,14 @@ public final class SettingsScreen extends Screen {
           Map.entry("style", "Personality / Style"),
           Map.entry("thoughts", "Show Thought Bubbles"),
           Map.entry("speech", "Show Speech Bubbles"),
+          Map.entry("companionName", "Cubey Name"),
+          Map.entry("cubeyTheme", "Cubey Color Theme"),
+          Map.entry("voiceMode", "Cubey Voice Style"),
           Map.entry("sounds", "Cubey Sounds (On/Off)"),
           Map.entry("soundVolume", "Cubey Sound Volume"),
+          Map.entry("voicePitch", "Voice Pitch (Preview)"),
+          Map.entry("voiceTempo", "Voice Speed (Animal Crossing)"),
+          Map.entry("voiceVariance", "Voice Melody Variance"),
           Map.entry("particles", "Hover Particles"),
           Map.entry("showTargetBeam", "Target Focus Beam"),
           Map.entry("glow", "Sensor & Edge Glow"),
@@ -200,7 +219,21 @@ public final class SettingsScreen extends Screen {
       labels.add(FRIENDLY_LABELS.getOrDefault(name, name));
       String current = values.getOrDefault(name, "");
       boolean bool = current.equals("true") || current.equals("false");
-      if (bool) {
+      if (name.equals("voiceMode") || name.equals("cubeyTheme")) {
+        List<String> cycle = name.equals("voiceMode") ? VOICE_MODES : THEMES;
+        addRenderableWidget(
+            Button.builder(
+                    Component.literal(formatChoiceLabel(name, current)),
+                    b -> {
+                      int idx = cycle.indexOf(values.getOrDefault(name, cycle.get(0)));
+                      String next = cycle.get((idx + 1) % cycle.size());
+                      values.put(name, next);
+                      b.setMessage(Component.literal(formatChoiceLabel(name, next)));
+                      if (name.equals("voiceMode")) previewVoice();
+                    })
+                .bounds(left + 135, y, 165, 20)
+                .build());
+      } else if (bool) {
         addRenderableWidget(
             Button.builder(
                     Component.literal(Boolean.parseBoolean(current) ? "ON" : "OFF"),
@@ -237,6 +270,12 @@ public final class SettingsScreen extends Screen {
                     spec.integer
                         ? Integer.toString((int) Math.round(v))
                         : String.format(Locale.ROOT, "%.2f", v));
+                if (name.equals("soundVolume")
+                    || name.equals("voicePitch")
+                    || name.equals("voiceTempo")
+                    || name.equals("voiceVariance")) {
+                  previewVoice();
+                }
               }
             });
       } else {
@@ -445,6 +484,40 @@ public final class SettingsScreen extends Screen {
         width / 2,
         height - 78,
         0xBBBBBB);
+  }
+
+  private void previewVoice() {
+    double vol = parseDoubleOr(values.get("soundVolume"), 0.75);
+    double pitch = parseDoubleOr(values.get("voicePitch"), 1.0);
+    double var = parseDoubleOr(values.get("voiceVariance"), 0.08);
+    String mode = values.getOrDefault("voiceMode", "animalese");
+    controller.previewVoice(vol, pitch, var, mode);
+  }
+
+  private static double parseDoubleOr(String s, double fallback) {
+    try {
+      return s == null ? fallback : Double.parseDouble(s);
+    } catch (NumberFormatException e) {
+      return fallback;
+    }
+  }
+
+  private static String formatChoiceLabel(String field, String val) {
+    if ("voiceMode".equals(field)) {
+      return switch (val) {
+        case "silent" -> "Still (Mute)";
+        case "chirp" -> "Einzelner Ton";
+        default -> "Animal Crossing";
+      };
+    }
+    return switch (val) {
+      case "sakura" -> "Sakura Pink";
+      case "amethyst" -> "Void Amethyst";
+      case "solar" -> "Solar Gold";
+      case "emerald" -> "Create Emerald";
+      case "frost" -> "Arctic Frost";
+      default -> "Neo Cyan";
+    };
   }
 
   @Override

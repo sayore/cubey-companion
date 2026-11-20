@@ -37,10 +37,14 @@ public final class BubbleRenderer {
       double distance,
       Bubbles.Bubble bubble,
       double yOffset) {
+    String name =
+        settings.companionName == null || settings.companionName.isBlank()
+            ? "Cubey"
+            : settings.companionName;
     var lines =
         new ArrayList<>(
             mc.font.split(
-                Component.literal((bubble.thought() ? "◦ " : "QB2: ") + bubble.text()), 135));
+                Component.literal((bubble.thought() ? "◦ " : name + ": ") + bubble.text()), 135));
     if (lines.size() > 3) {
       lines.subList(3, lines.size()).clear();
       lines.set(2, Component.literal("…").getVisualOrderText());

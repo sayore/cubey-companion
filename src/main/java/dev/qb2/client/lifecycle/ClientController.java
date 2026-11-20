@@ -293,9 +293,10 @@ public final class ClientController {
               session.lastRenderedPitch,
               session.lastRenderedRoll,
               session.state,
-              session.situational.activeHat,
+              session.situational.activeHat + "|" + s.cubeyTheme + "|" + s.companionName,
               sharedSpeech));
     }
+    audio.tickSpeechVoice(mc, s, session.motion.position());
     if (session.pendingWeeeeSound) {
       session.pendingWeeeeSound = false;
       float pitch = 0.94f + session.grabThrow.lastLaunchCharge() * 0.28f;
@@ -588,6 +589,8 @@ public final class ClientController {
     }
     var contextMap = new LinkedHashMap<>(snapshot.context());
     if (s.style != null && !s.style.isBlank()) contextMap.put("style", s.style);
+    if (s.companionName != null && !s.companionName.isBlank())
+      contextMap.put("companionName", s.companionName);
     var job =
         new Mind.Job(
             epoch,
@@ -1097,16 +1100,14 @@ public final class ClientController {
 
   private void speakLocally(String rawSpeech) {
     String speech = rawSpeech.replace('\n', ' ');
+    var s = configuration.settings();
+    String name = s.companionName == null || s.companionName.isBlank() ? "Cubey" : s.companionName;
     session.chat.add(ChatHistory.Source.QB2, speech, session.tick);
     summarizer.record(scope, "speech", speech).ifPresent(this::queueBackgroundEpisode);
-    audio.play(
-        mc,
-        configuration.settings(),
-        session.motion.position(),
-        dev.qb2.rendering.audio.CompanionAudio.Cue.SPEECH);
-    mc.gui.getChat().addMessage(Component.literal("[QB2] " + speech));
-    if (configuration.settings().serverChat && player.connection != null)
-      player.connection.sendChat("[QB2] " + speech.substring(0, Math.min(240, speech.length())));
+    audio.speak(mc, s, session.motion.position(), speech);
+    mc.gui.getChat().addMessage(Component.literal("[" + name + "] " + speech));
+    if (s.serverChat && player.connection != null)
+      player.connection.sendChat("[" + name + "] " + speech.substring(0, Math.min(240, speech.length())));
   }
 
   private String scope() {
@@ -1135,6 +1136,10 @@ public final class ClientController {
     level = null;
     player = null;
     error = "";
+  }
+
+  public void previewVoice(double volume, double pitch, double variance, String voiceMode) {
+    audio.playPreview(mc, volume, pitch, variance, voiceMode);
   }
 
   public void testConnection() {

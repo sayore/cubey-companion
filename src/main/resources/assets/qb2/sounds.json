@@ -30,5 +30,9 @@
   "sleep": {
     "subtitle": "subtitles.qb2.sleep",
     "sounds": ["qb2:sleep1", "qb2:sleep2"]
+  },
+  "animalese": {
+    "subtitle": "subtitles.qb2.speech",
+    "sounds": ["qb2:syl1", "qb2:syl2", "qb2:syl3", "qb2:syl4", "qb2:syl5"]
   }
 }
